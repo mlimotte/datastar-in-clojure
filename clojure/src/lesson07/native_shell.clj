@@ -152,7 +152,7 @@
 (defn page
   "A full page. The web gets a nav bar; the shell does not (it draws native navigation).
   The bridge listener turns the shell's {type: 'push-token'} message into $pushToken and a POST
-  that sends only that signal. One expression, no `;`: Datastar splits statements at `;`."
+  that sends only that signal, written as one `&&` expression."
   [{:keys [title shell? signals stream-url]} view]
   (str "<!DOCTYPE html>"
        (h/html
