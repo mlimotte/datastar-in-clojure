@@ -176,7 +176,9 @@
                (.POST (HttpRequest$BodyPublishers/ofString body))
                .build))))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (let [port (start! 0)
         url  (str "http://localhost:" port "/quote")
         sent (dissoc initial-signals :_prices :_loading)]
@@ -194,5 +196,8 @@
     (print (datastar-post url (assoc sent :drink "chai" :size "large" :milk "almond")))
     (println "Chai 450 + large 100 + almond 60 = 610 cents.")
     (println "\nTo try it in a browser: (exercises.lesson03.signals/start! 8080), then open http://localhost:8080/")
-    (stop!)
-    (shutdown-agents)))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents))

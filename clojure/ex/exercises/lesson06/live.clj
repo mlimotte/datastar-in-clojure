@@ -410,7 +410,9 @@
                     (HttpResponse$BodyHandlers/ofString))]
     (locking *out* (println "   ←" (.statusCode resp) (string/trim (.body resp))))))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! !state initial-state)
   (let [port (start! 0)
         base (str "http://localhost:" port)
@@ -442,5 +444,8 @@
       (run! #(deref % 1000 nil) readers)
       (Thread/sleep 200)
       (println "After both clients disconnect (http-kit :on-close → unsubscribe!):" (count @hub))
-      (stop!)))
+      (stop!))))
+
+(defn -main [& _]
+  (demo!)
   (shutdown-agents))

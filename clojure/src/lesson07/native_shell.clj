@@ -413,7 +413,9 @@
                          (recur (conj buf line))))))
                  (catch Exception _ nil)))}))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! !state brew/initial-state)
   (let [port (start! 0)
         base (str "http://localhost:" port)
@@ -447,5 +449,8 @@
       (say "   open streams:" (count @hub))
       (step "Sam marks #2 ready. No stream is open for Ada, so the server falls back to a push.")
       (send-req sam base "POST" "/orders/2/advance" {}))
-    (stop!))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
   (shutdown-agents))

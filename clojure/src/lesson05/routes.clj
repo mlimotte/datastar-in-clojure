@@ -352,7 +352,9 @@
     (doseq [l (string/split-lines (.body resp))] (println (str "   │ " l)))
     resp))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! !state initial-state)
   (let [port (start! 0)
         base (str "http://localhost:" port)
@@ -375,5 +377,8 @@
                       (HttpResponse$BodyHandlers/ofString))]
       (println "\n── POST /stock/oat/toggle without Datastar-Request")
       (println "   ←" (.statusCode resp) (.body resp) "(wrap-datastar-request)"))
-    (stop!)
-    (shutdown-agents)))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents))

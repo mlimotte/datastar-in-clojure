@@ -72,6 +72,7 @@
                     (conj acc line)))
                 []
                 (line-seq (io/reader (.body resp))))
+        (catch java.io.IOException _ nil) ;; the demo closed the stream
         (catch Exception e (println "stream reader failed:" (ex-message e) (class e)))))
     !events))
 
@@ -93,7 +94,9 @@
     (doseq [[s n] (map vector streams before)] (await-events s (inc n)))
     (Thread/sleep 100)))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (let [port     (main/start! 0 (main/new-system))
         ada      "sid-ada"
         _        (println (str "Brew Board demo on port " port ". Ada is a customer; Sam runs the board."))
@@ -126,6 +129,9 @@
     (step "Ada tries to add another oat latte: the server refuses and patches the _error signal."
           port "POST" "/cart/items" {:sid ada :datastar? true :signals {:drink "latte" :size "small" :milk "oat" :qty 1}})
     (println "\nDone. Run it for real: clojure -M -m brewboard.main")
-    (main/stop!)
-    (shutdown-agents)
-    (System/exit 0)))
+    (main/stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents)
+  (System/exit 0))

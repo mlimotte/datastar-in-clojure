@@ -243,7 +243,9 @@
                     (.POST (HttpRequest$BodyPublishers/ofString (json/generate-string signals)))
                     .build))))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! state {:sold-out #{} :carts {}})
   (let [port   (start! 0)
         url    (str "http://localhost:" port)
@@ -268,5 +270,8 @@
     (println " " (pr-str (get-in @state [:carts (subs cookie 4)])))
     (println "\nTo try it in a browser: (lesson04.where-state-lives/start! 8080), then open http://localhost:8080/")
     (println "Mark a milk sold out at the REPL: (swap! lesson04.where-state-lives/state update :sold-out conj :oat)")
-    (stop!)
-    (shutdown-agents)))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents))

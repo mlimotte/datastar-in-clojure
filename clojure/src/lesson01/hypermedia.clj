@@ -115,7 +115,9 @@
   (println (str "HTTP " status "  Content-Type: " content-type))
   (println (string/trimr body)))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! visits 0)
   (let [port (start! 0)
         url  (str "http://localhost:" port)]
@@ -128,5 +130,8 @@
     (println "\nA text/html response becomes one patch-elements event on the client side.")
     (println "SSE can carry many events and can stay open; text/html carries exactly one patch.")
     (println (str "\nTo try it in a browser: (lesson01.hypermedia/start! 8080), then open http://localhost:8080/"))
-    (stop!)
-    (shutdown-agents)))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents))

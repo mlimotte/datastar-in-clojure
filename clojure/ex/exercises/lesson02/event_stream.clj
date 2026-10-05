@@ -170,7 +170,9 @@
           (recur (cond-> events (string/blank? line) inc)))))
     (.shutdownNow client)))
 
-(defn -main [& _]
+(defn demo!
+  "Run the narrated demo: start a server, make real requests, print what happens, stop."
+  []
   (reset! closes [])
   (let [port (start! 0)
         url  (str "http://localhost:" port)]
@@ -200,5 +202,8 @@
                (str "  on-close fired with status " status ". The server can stop work for this client.")
                "  on-close has not fired yet: this http-kit version did not notice the closed connection."))
     (println (str "\nTo try it in a browser: (exercises.lesson02.event-stream/start! 8080), then open http://localhost:8080/"))
-    (stop!)
-    (shutdown-agents)))
+    (stop!)))
+
+(defn -main [& _]
+  (demo!)
+  (shutdown-agents))

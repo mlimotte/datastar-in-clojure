@@ -41,14 +41,7 @@
   ],
   "demos": {
     "clojure": [
-      "lesson01.hypermedia",
-      "lesson02.event-stream",
-      "lesson03.signals",
-      "lesson04.where-state-lives",
-      "lesson05.routes",
-      "lesson06.live",
-      "lesson07.native-shell",
-      "brewboard.demo"
+      "ci-demos"
     ]
   },
   "terminal": {
