@@ -1,0 +1,60 @@
+{
+  "title": "Datastar in Clojure",
+  "headline": "Building hypermedia apps with Datastar and Clojure",
+  "tagline": "Signals, SSE, server-shaped routes, and a native shell that replaces a React Native app",
+  "parts": [
+    {
+      "slug": "hypermedia",
+      "title": "HTML over the wire",
+      "desc": "A click, an SSE response, an element patched by id"
+    },
+    {
+      "slug": "event-stream",
+      "title": "The event stream",
+      "desc": "The patch-elements and patch-signals wire format, written by hand"
+    },
+    {
+      "slug": "signals",
+      "title": "Signals",
+      "desc": "Reactive client state in data-* attributes, and reading it on the server"
+    },
+    {
+      "slug": "where-state-lives",
+      "title": "When to use a signal",
+      "desc": "The server owns the truth; a server-rendered drop-down"
+    },
+    {
+      "slug": "routes",
+      "title": "Shaping the backend",
+      "desc": "Page GETs, command POSTs, and a route table that stays small"
+    },
+    {
+      "slug": "live",
+      "title": "One stream, many viewers",
+      "desc": "Re-render everything on change, morph the difference, broadcast"
+    },
+    {
+      "slug": "native-shell",
+      "title": "Replacing the React Native app",
+      "desc": "A thin native shell over the same routes, with a bridge"
+    }
+  ],
+  "demos": {
+    "clojure": [
+      "lesson01.hello"
+    ]
+  },
+  "terminal": {
+    "programs": {},
+    "files": {},
+    "try": [],
+    "smoke": []
+  },
+  "wild": {
+    "min_sources": 3,
+    "max_per_source": 2
+  },
+  "ci": {
+    "extra": []
+  }
+}

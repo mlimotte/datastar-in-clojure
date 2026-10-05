@@ -1,0 +1,10 @@
+[
+ {
+  "id": "add",
+  "hint": "Return the sum of a and b.",
+  "lines": 1,
+  "lang": "Clojure",
+  "lesson": "01",
+  "file": "clojure/ex/exercises/lesson01/hello.clj"
+ }
+]
