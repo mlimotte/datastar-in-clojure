@@ -1,10 +1,170 @@
 [
  {
-  "id": "add",
-  "hint": "Return the sum of a and b.",
-  "lines": 1,
+  "id": "sse-event",
+  "hint": "Return the text of one SSE event: \"event: <type>\", then \"data: <line>\" for each data line, each line ended by a newline, and one empty line at the end.",
+  "lines": 3,
   "lang": "Clojure",
   "lesson": "01",
-  "file": "clojure/ex/exercises/lesson01/hello.clj"
+  "file": "clojure/ex/exercises/lesson01/hypermedia.clj"
+ },
+ {
+  "id": "hello-response",
+  "hint": "Return a Ring response map: status 200, Content-Type text/event-stream, Cache-Control no-cache, and a body that is one datastar-patch-elements event whose single data line is \"elements \" followed by the greeting HTML.",
+  "lines": 4,
+  "lang": "Clojure",
+  "lesson": "01",
+  "file": "clojure/ex/exercises/lesson01/hypermedia.clj"
+ },
+ {
+  "id": "send-event",
+  "hint": "Return the event text in this order: \"event: <type>\", then \"id: <id>\" when id is given, then \"retry: <ms>\" when retry is given and is not 1000, then \"data: <line>\" for each data line, then one empty line. Every line ends with \"\\n\".",
+  "lines": 5,
+  "lang": "Clojure",
+  "lesson": "02",
+  "file": "clojure/ex/exercises/lesson02/event_stream.clj"
+ },
+ {
+  "id": "patch-elements",
+  "hint": "Build the data lines, leaving out defaults: \"selector \u2026\" if given, \"mode \u2026\" unless outer, \"useViewTransition true\" if true, \"viewTransitionSelector \u2026\" if given with a view transition, \"namespace \u2026\" unless html, then \"elements <line>\" for each line of the HTML (none when html is nil). Send them with send-event.",
+  "lines": 10,
+  "lang": "Clojure",
+  "lesson": "02",
+  "file": "clojure/ex/exercises/lesson02/event_stream.clj"
+ },
+ {
+  "id": "patch-signals",
+  "hint": "Encode signals as JSON unless it is already a string. Send \"onlyIfMissing true\" first when that option is true, then \"signals <line>\" for each line of the JSON.",
+  "lines": 4,
+  "lang": "Clojure",
+  "lesson": "02",
+  "file": "clojure/ex/exercises/lesson02/event_stream.clj"
+ },
+ {
+  "id": "execute-script",
+  "hint": "Make a <script> tag with each attribute as name=\"value\", plus data-effect=\"el.remove()\" when auto-remove is on. Send it as a patch-elements event that appends to the selector body.",
+  "lines": 4,
+  "lang": "Clojure",
+  "lesson": "02",
+  "file": "clojure/ex/exercises/lesson02/event_stream.clj"
+ },
+ {
+  "id": "price-cents",
+  "hint": "Add the drink's base price, the size delta, and the milk delta (no milk adds nothing).",
+  "lines": 3,
+  "lang": "Clojure",
+  "lesson": "03",
+  "file": "clojure/ex/exercises/lesson03/signals.clj"
+ },
+ {
+  "id": "read-signals",
+  "hint": "Take the JSON text from the \"datastar\" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read.",
+  "lines": 4,
+  "lang": "Clojure",
+  "lesson": "03",
+  "file": "clojure/ex/exercises/lesson03/signals.clj"
+ },
+ {
+  "id": "quote-response",
+  "hint": "Make a draft from the signals. If it has an error, patch {quote: 0, error: <message>}. Otherwise patch {quote: price \u00d7 qty, error: \"\"}. Return a one-shot SSE response.",
+  "lines": 6,
+  "lang": "Clojure",
+  "lesson": "03",
+  "file": "clojure/ex/exercises/lesson03/signals.clj"
+ },
+ {
+  "id": "drink-options-view",
+  "hint": "Return hiccup for div#drink-options. It holds select#size (data-bind:size) with one option per size of the drink, and select#milk (data-bind:milk) with one option per milk, or [:p.muted \"No milk\"] when the drink takes no milk. Mark the chosen size and milk as selected. A sold-out milk is disabled and its label ends with \" (sold out)\".",
+  "lines": 15,
+  "lang": "Clojure",
+  "lesson": "04",
+  "file": "clojure/ex/exercises/lesson04/where_state_lives.clj"
+ },
+ {
+  "id": "drink-options-response",
+  "hint": "Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view, then patch only the signals that changed (size, milk). A missing milk is sent as \"\" so the bound select keeps a string.",
+  "lines": 8,
+  "lang": "Clojure",
+  "lesson": "04",
+  "file": "clojure/ex/exercises/lesson04/where_state_lives.clj"
+ },
+ {
+  "id": "add-to-cart",
+  "hint": "Return nil when draft-error finds a problem (use the state's sold-out set). Otherwise add the line {:drink :size :milk :qty} to the end of the cart for sid and return the new state.",
+  "lines": 2,
+  "lang": "Clojure",
+  "lesson": "04",
+  "file": "clojure/ex/exercises/lesson04/where_state_lives.clj"
+ },
+ {
+  "id": "handle-command",
+  "hint": "Return the next state for each command type: :add-to-cart (append line to sid's cart when line-error is nil), :remove-from-cart (drop the line at idx), :place-order (turn a non-empty cart into a :placed order for a non-blank customer, then empty the cart), :advance (move an order one step along next-status; an order that reaches :picked-up leaves :orders), :toggle-stock (add or remove milk from :sold-out).",
+  "lines": 31,
+  "lang": "Clojure",
+  "lesson": "05",
+  "file": "clojure/ex/exercises/lesson05/routes.clj"
+ },
+ {
+  "id": "command-response",
+  "hint": "Return a one-shot SSE response that patches exactly the regions this command type changed (see the docstring), rendered from the new state.",
+  "lines": 14,
+  "lang": "Clojure",
+  "lesson": "05",
+  "file": "clojure/ex/exercises/lesson05/routes.clj"
+ },
+ {
+  "id": "wrap-datastar-request",
+  "hint": "Return a handler that calls `handler` only when the request header datastar-request is \"true\", and answers 403 otherwise.",
+  "lines": 4,
+  "lang": "Clojure",
+  "lesson": "05",
+  "file": "clojure/ex/exercises/lesson05/routes.clj"
+ },
+ {
+  "id": "view-for",
+  "hint": "Return the hiccup for <main id=\"app\"> for this viewer: a customer sees the draft form, their own cart and only their own orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)",
+  "lines": 3,
+  "lang": "Clojure",
+  "lesson": "06",
+  "file": "clojure/ex/exercises/lesson06/live.clj"
+ },
+ {
+  "id": "broadcast",
+  "hint": "For every subscriber in the hub, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.",
+  "lines": 9,
+  "lang": "Clojure",
+  "lesson": "06",
+  "file": "clojure/ex/exercises/lesson06/live.clj"
+ },
+ {
+  "id": "stream-lifecycle",
+  "hint": "Make a fresh id for this stream. On open, subscribe send-fn with the viewer and send it the whole current view right away (a reconnect must get the view again too). On close, unsubscribe it.",
+  "lines": 5,
+  "lang": "Clojure",
+  "lesson": "06",
+  "file": "clojure/ex/exercises/lesson06/live.clj"
+ },
+ {
+  "id": "shell-request",
+  "hint": "The shell appends `BrewShell/1` to its User-Agent. Return true when the request's user-agent header contains it, false otherwise (including no header).",
+  "lines": 1,
+  "lang": "Clojure",
+  "lesson": "07",
+  "file": "clojure/ex/exercises/lesson07/native_shell.clj"
+ },
+ {
+  "id": "bridge-script",
+  "hint": "Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: a customer named \"</script>\" must not end it.",
+  "lines": 3,
+  "lang": "Clojure",
+  "lesson": "07",
+  "file": "clojure/ex/exercises/lesson07/native_shell.clj"
+ },
+ {
+  "id": "ready-notifications",
+  "hint": "Return one {:sid \u2026 :message \u2026} per order that is :ready in new but was not :ready in old, in order-id order. The message reads \"Ada, your order #1 is ready.\"",
+  "lines": 3,
+  "lang": "Clojure",
+  "lesson": "07",
+  "file": "clojure/ex/exercises/lesson07/native_shell.clj"
  }
 ]

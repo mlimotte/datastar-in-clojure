@@ -11,4 +11,42 @@ cd go && go test ./exercises/lessonNN/
 
 ## Part 1 · [HTML over the wire](site/posts/01-hypermedia.html)
 
-- **`add`** (Clojure, `clojure/ex/exercises/lesson01/hello.clj`, 1 lines): Return the sum of a and b.
+- **`sse-event`** (Clojure, `clojure/ex/exercises/lesson01/hypermedia.clj`, 3 lines): Return the text of one SSE event: "event: <type>", then "data: <line>" for each data line, each line ended by a newline, and one empty line at the end.
+- **`hello-response`** (Clojure, `clojure/ex/exercises/lesson01/hypermedia.clj`, 4 lines): Return a Ring response map: status 200, Content-Type text/event-stream, Cache-Control no-cache, and a body that is one datastar-patch-elements event whose single data line is "elements " followed by the greeting HTML.
+
+## Part 2 · [The event stream](site/posts/02-event-stream.html)
+
+- **`send-event`** (Clojure, `clojure/ex/exercises/lesson02/event_stream.clj`, 5 lines): Return the event text in this order: "event: <type>", then "id: <id>" when id is given, then "retry: <ms>" when retry is given and is not 1000, then "data: <line>" for each data line, then one empty line. Every line ends with "\n".
+- **`patch-elements`** (Clojure, `clojure/ex/exercises/lesson02/event_stream.clj`, 10 lines): Build the data lines, leaving out defaults: "selector …" if given, "mode …" unless outer, "useViewTransition true" if true, "viewTransitionSelector …" if given with a view transition, "namespace …" unless html, then "elements <line>" for each line of the HTML (none when html is nil). Send them with send-event.
+- **`patch-signals`** (Clojure, `clojure/ex/exercises/lesson02/event_stream.clj`, 4 lines): Encode signals as JSON unless it is already a string. Send "onlyIfMissing true" first when that option is true, then "signals <line>" for each line of the JSON.
+- **`execute-script`** (Clojure, `clojure/ex/exercises/lesson02/event_stream.clj`, 4 lines): Make a <script> tag with each attribute as name="value", plus data-effect="el.remove()" when auto-remove is on. Send it as a patch-elements event that appends to the selector body.
+
+## Part 3 · [Signals](site/posts/03-signals.html)
+
+- **`price-cents`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 3 lines): Add the drink's base price, the size delta, and the milk delta (no milk adds nothing).
+- **`read-signals`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 4 lines): Take the JSON text from the "datastar" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read.
+- **`quote-response`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 6 lines): Make a draft from the signals. If it has an error, patch {quote: 0, error: <message>}. Otherwise patch {quote: price × qty, error: ""}. Return a one-shot SSE response.
+
+## Part 4 · [When to use a signal](site/posts/04-where-state-lives.html)
+
+- **`drink-options-view`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 15 lines): Return hiccup for div#drink-options. It holds select#size (data-bind:size) with one option per size of the drink, and select#milk (data-bind:milk) with one option per milk, or [:p.muted "No milk"] when the drink takes no milk. Mark the chosen size and milk as selected. A sold-out milk is disabled and its label ends with " (sold out)".
+- **`drink-options-response`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 8 lines): Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view, then patch only the signals that changed (size, milk). A missing milk is sent as "" so the bound select keeps a string.
+- **`add-to-cart`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 2 lines): Return nil when draft-error finds a problem (use the state's sold-out set). Otherwise add the line {:drink :size :milk :qty} to the end of the cart for sid and return the new state.
+
+## Part 5 · [Shaping the backend](site/posts/05-routes.html)
+
+- **`handle-command`** (Clojure, `clojure/ex/exercises/lesson05/routes.clj`, 31 lines): Return the next state for each command type: :add-to-cart (append line to sid's cart when line-error is nil), :remove-from-cart (drop the line at idx), :place-order (turn a non-empty cart into a :placed order for a non-blank customer, then empty the cart), :advance (move an order one step along next-status; an order that reaches :picked-up leaves :orders), :toggle-stock (add or remove milk from :sold-out).
+- **`command-response`** (Clojure, `clojure/ex/exercises/lesson05/routes.clj`, 14 lines): Return a one-shot SSE response that patches exactly the regions this command type changed (see the docstring), rendered from the new state.
+- **`wrap-datastar-request`** (Clojure, `clojure/ex/exercises/lesson05/routes.clj`, 4 lines): Return a handler that calls `handler` only when the request header datastar-request is "true", and answers 403 otherwise.
+
+## Part 6 · [One stream, many viewers](site/posts/06-live.html)
+
+- **`view-for`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 3 lines): Return the hiccup for <main id="app"> for this viewer: a customer sees the draft form, their own cart and only their own orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)
+- **`broadcast`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 9 lines): For every subscriber in the hub, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.
+- **`stream-lifecycle`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 5 lines): Make a fresh id for this stream. On open, subscribe send-fn with the viewer and send it the whole current view right away (a reconnect must get the view again too). On close, unsubscribe it.
+
+## Part 7 · [Replacing the React Native app](site/posts/07-native-shell.html)
+
+- **`shell-request`** (Clojure, `clojure/ex/exercises/lesson07/native_shell.clj`, 1 lines): The shell appends `BrewShell/1` to its User-Agent. Return true when the request's user-agent header contains it, false otherwise (including no header).
+- **`bridge-script`** (Clojure, `clojure/ex/exercises/lesson07/native_shell.clj`, 3 lines): Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: a customer named "</script>" must not end it.
+- **`ready-notifications`** (Clojure, `clojure/ex/exercises/lesson07/native_shell.clj`, 3 lines): Return one {:sid … :message …} per order that is :ready in new but was not :ready in old, in order-id order. The message reads "Ada, your order #1 is ready."
