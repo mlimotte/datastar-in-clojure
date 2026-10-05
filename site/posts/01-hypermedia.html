@@ -1,30 +1,251 @@
+<style>
+  .rt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+  @media (max-width: 700px) { .rt-grid { grid-template-columns: 1fr; } }
+  .rt-lane { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .8rem; }
+  .rt-lane .tag { opacity: .45; }
+  .rt-lane .tag.on { opacity: 1; }
+  .rt-box { border: 1.5px solid var(--rule); border-radius: 8px; padding: .55rem .7rem; background: var(--bg); min-height: 3rem; }
+  .rt-box.active { border-color: var(--accent); background: var(--accent-soft); }
+  .rt-label { font: 600 .7rem/1 var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin: 0 0 .35rem; }
+  .rt-wire { font: .76rem/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0; color: var(--ink); }
+  .rt-dom { font: .8rem/1.5 var(--mono); }
+  .rt-dom .changed { background: var(--teal-soft); color: var(--teal); border-radius: 3px; padding: 0 .2rem; }
+  .rt-page { border: 1px dashed var(--rule); border-radius: 6px; padding: .5rem .7rem; background: var(--bg-sunk); }
+  .rt-page button { pointer-events: none; }
+  .ct-out { font: .8rem/1.5 var(--mono); }
+  .ct-out .ok { color: var(--good); } .ct-out .warn { color: var(--bad); }
+</style>
   <h1>HTML over the wire</h1>
-  <p class="dek">One or two sentences: what you'll understand by the end.</p>
+  <p class="dek">A button says <code>@get('/hello')</code>. The server answers with an event stream
+    that carries HTML. Datastar finds the element with the matching id and patches it in place.
+    That loop is the whole framework. The other six parts are about using it well.</p>
 
-  <!-- Warm-up: three recall cards from the previous part (renders nothing in part 1). -->
-  <div data-warmup></div>
+  <p>Most web apps built in the last ten years split the work like this: the server sends JSON, and
+    a JavaScript application in the browser turns the JSON into DOM. The application has its own
+    state, its own router, its own build, and its own copy of half the business rules. Datastar
+    splits it differently. The server renders HTML, the same way a server rendered HTML in 2005,
+    and a single script on the page (11.89&nbsp;KiB, according to the v1.0.4 README) does two
+    small jobs. It reads <code>data-*</code> attributes and wires them to a small reactive store,
+    which is part 3. And it turns server responses into DOM patches, which is this part and the
+    next.</p>
 
-  <p>Prose…</p>
+  <p>This series is about using Datastar from Clojure without an SDK. Datastar publishes an
+    official Clojure SDK, and it's good. But the wire format is a few dozen lines of string
+    building, and once you've written those lines yourself, nothing the browser does is a mystery.
+    Part 2 writes them. This part writes the smallest version that works.</p>
 
-  <h2>Section</h2>
-<pre class="pseudo">function eval(expr)
-  match expr
-    case Lit(v)  -> return v          -- pseudocode: ML-style match, -- comments
+  <h2>The toy: Brew Board</h2>
+
+  <p>Every part builds toward one app, <strong>Brew Board</strong>: a coffee counter with six
+    drinks. Customers (Ada, Grace, and Linus) configure a drink, add it to a cart, and place an
+    order. The barista (Sam) sees every order on a live board and moves each one through
+    <code>placed → making → ready</code>. Prices are in cents:</p>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>drink</th><th>base</th><th>sizes</th><th>milks</th></tr></thead>
+    <tbody>
+      <tr><td>Espresso</td><td>300</td><td>single, double</td><td>none</td></tr>
+      <tr><td>Americano</td><td>350</td><td>small, large</td><td>none</td></tr>
+      <tr><td>Latte</td><td>450</td><td>small, medium, large</td><td>whole, oat, almond</td></tr>
+      <tr><td>Cappuccino</td><td>425</td><td>small, medium</td><td>whole, oat</td></tr>
+      <tr><td>Mocha</td><td>500</td><td>small, medium, large</td><td>whole, oat, almond</td></tr>
+      <tr><td>Chai Latte</td><td>450</td><td>medium, large</td><td>whole, oat, almond</td></tr>
+    </tbody>
+  </table></div>
+  <p class="caption">Size adds 0 (single, small), 50 (medium), or 100 (double, large). Oat and
+    almond add 60. A medium oat latte is 450 + 50 + 60 = 560 cents.</p>
+
+  <p>We'll use all of that later. Part 1 needs one button and one div.</p>
+
+  <h2>The page</h2>
+
+  <p>A Datastar page is ordinary HTML with one script tag. We render it with hiccup:</p>
+
+<pre><code class="language-clojure">(def datastar-cdn
+  "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js")
+
+(defn page []
+  (str "&lt;!DOCTYPE html&gt;"
+       (h/html
+        [:html
+         [:head
+          [:meta {:charset "utf-8"}]
+          [:title "Part 1: HTML over the wire"]
+          [:script {:type "module" :src datastar-cdn}]]
+         [:body
+          [:h1 "HTML over the wire"]
+          [:div#greeting "Nobody has said hello yet."]
+          [:button {:data-on:click "@get('/hello')"} "Say hello (SSE)"]
+          " "
+          [:button {:data-on:click "@get('/hello-html')"} "Say hello (text/html)"]]])))</code></pre>
+
+  <p>Two attributes do the work. <code>id="greeting"</code> names the element the server will
+    replace. <code>data-on:click="@get('/hello')"</code> tells Datastar: when this button is
+    clicked, evaluate the expression <code>@get('/hello')</code>. The <code>@</code> marks an
+    <em>action</em>. Datastar rewrites <code>@get('/foo')</code> into a call to its fetch plugin
+    before it evaluates the expression (the rewrite rules are listed in a comment in
+    <code>engine.ts</code>).</p>
+
+  <p>Hiccup renders a keyword with a colon in it, <code>:data-on:click</code>, as the attribute
+    name <code>data-on:click</code>. Use single quotes inside the expression. Hiccup escapes them
+    as <code>&amp;apos;</code>, which the browser decodes when it parses the attribute, so
+    view-source looks odd but Datastar sees <code>@get('/hello')</code>. One hiccup trap to know now: never write
+    <code>true</code> as an attribute value. Hiccup renders <code>{:data-bind:drink true}</code>
+    as <code>data-bind:drink="data-bind:drink"</code>, and Datastar reads that value. Write
+    <code>""</code> for an attribute that has no value.</p>
+
+  <h2>The click, step by step</h2>
+
+  <p>Here is what happens between the click and the new text. Step through it. Each step is
+    what the browser or the server actually sees.</p>
+
+  <div id="viz-roundtrip"></div>
+
+  <p>Three details in that request are easy to miss.</p>
+
+  <p><strong>The request always carries signals.</strong> The page has no signals yet, but the
+    URL is still <code>/hello?datastar=%7B%7D</code>. For a GET, Datastar serializes the signals
+    it is allowed to send (part 3 covers which ones) as JSON and puts the JSON in a query parameter
+    named <code>datastar</code>. For POST, PUT, and PATCH it sends the same JSON as the request
+    body. With no signals, the JSON is <code>{}</code>.</p>
+
+  <p><strong>The request identifies itself.</strong> Every Datastar request has the header
+    <code>Datastar-Request: true</code> and
+    <code>Accept: text/event-stream, text/html, application/json</code>. Part 5 uses the first
+    header as a cheap guard on routes that change state.</p>
+
+  <p><strong>The response is a stream, even for one event.</strong> The server answers with
+    <code>Content-Type: text/event-stream</code>, and the body is one event:</p>
+
+<pre class="pseudo">event: datastar-patch-elements
+data: elements &lt;div id="greeting"&gt;&lt;strong&gt;Hello from the server!&lt;/strong&gt; Visit number 1.&lt;/div&gt;
+                                          -- a blank line ends the event
 </pre>
-  <p class="caption">Caption under a code block or figure.</p>
 
-  <!-- Figures: add <div id="viz-name"></div> here and site/viz/NN-slug.js that calls
-       EE.frame("#viz-name", "Title", "subtitle") (see the kit's references/figures.md). -->
+  <p>The event has a type line, then one <code>data:</code> line per line of payload, then a blank
+    line. Each data line starts with a key (<code>elements</code>), a space, and the value. The
+    browser reads the event, parses the HTML, sees that its top-level element has
+    <code>id="greeting"</code>, finds the element with that id in the page, and morphs the old
+    element into the new one. Morphing means it changes only what differs. Part 6 relies on that
+    heavily.</p>
 
-  <div class="code-ref"><p><code>clojure/src/lesson01/hello.clj</code> · <code>go/lesson01/hello.go</code>.
-    Run with <code>clojure -M -m lesson01.hello</code> / <code>go run ./cmd/lesson01</code>.</p>
-    <p>Or run it right here: <a href="../terminal.html#lesson01">open the terminal</a>.</p></div>
+  <h2>The handler</h2>
 
-  <div class="build-it"><p>The exercise track for this part: <code>add</code> (hints on the
-    <a href="../exercises.html">exercises page</a>). Fill in the TODOs until the tests pass:</p>
-<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson01.hello-test
-cd go &amp;&amp; go test ./exercises/lesson01/</code></pre></div>
+  <p>A one-shot SSE response is an ordinary Ring response. The body is the event text, and the
+    browser reads it until the connection closes. We don't need an async server, a channel, or a
+    library for that:</p>
+
+<pre><code class="language-clojure">(defn sse-event
+  "Format one SSE event: an event line, one data line per entry, then a blank line."
+  [event-type data-lines]
+  (str "event: " event-type "\n"
+       (string/join (map #(str "data: " % "\n") data-lines))
+       "\n"))
+
+(defn greeting-html
+  "The element the server sends back. Its id tells Datastar where it goes."
+  [visits]
+  (str (h/html [:div#greeting [:strong "Hello from the server!"] (str " Visit number " visits ".")])))
+
+(defn hello-response
+  "A one-shot SSE Ring response that patches #greeting."
+  [visits]
+  {:status  200
+   :headers {"Content-Type"  "text/event-stream"
+             "Cache-Control" "no-cache"}
+   :body    (sse-event "datastar-patch-elements" [(str "elements " (greeting-html visits))])})</code></pre>
+
+  <p>That's the whole server half. The lesson routes with a plain <code>case</code> on
+    <code>[request-method uri]</code>, and the <code>/hello</code> branch is
+    <code>(hello-response (swap! visits inc))</code>, which counts clicks so you can see each patch
+    land. (Part 5 swaps the <code>case</code> for reitit, once there are enough routes to need it.)
+    <code>hello-response</code> is a plain function from a number to a response map, so the test
+    calls it directly and checks the string. No server needs to be running.</p>
+
+  <div class="aside"><p><strong>How Datastar reads the stream.</strong> Browsers ship a built-in
+    SSE client, <code>EventSource</code>. Datastar doesn't use it. <code>EventSource</code> can only
+    make GET requests, can't send a request body, and can't set request headers. Datastar
+    calls <code>fetch</code> instead, reads the response body as bytes, splits the bytes into lines,
+    and assembles events itself. The parser in <code>fetch.ts</code> follows the WHATWG
+    event-stream rules: <code>data</code> lines append to the event's data (joined with
+    <code>\n</code>), <code>event</code>, <code>id</code>, and <code>retry</code> set fields, and an
+    empty line dispatches the event. Datastar then ignores any event whose type doesn't start
+    with <code>datastar</code>. So a POST can answer with a stream, and so can a DELETE. Part 5
+    depends on that.</p></div>
+
+  <h2>Not every response has to be a stream</h2>
+
+  <p>Datastar looks at the response's <code>Content-Type</code> before it decides what to do. The
+    request said it accepts three types, and the status code matters too: only a 200 is applied.</p>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>response</th><th>what Datastar does</th></tr></thead>
+    <tbody>
+      <tr><td><code>text/event-stream</code></td><td>parses events until EOF and applies each one</td></tr>
+      <tr><td><code>text/html</code></td><td>treats the whole body as one patch-elements event. Options come from
+        response headers <code>datastar-selector</code>, <code>datastar-mode</code>, …</td></tr>
+      <tr><td><code>application/json</code></td><td>treats the body as one patch-signals event</td></tr>
+      <tr><td><code>204 No Content</code></td><td>nothing. It doesn't retry, and no error appears.</td></tr>
+      <tr><td>any status but 200</td><td>the body is ignored. A 4xx or 5xx also fires a <code>datastar-fetch</code>
+        error event you can listen for; the page itself doesn't change.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>So the lesson's second button, <code>@get('/hello-html')</code>, gets the same patch as
+    plain HTML:</p>
+
+<pre><code class="language-clojure">(defn hello-html-response
+  "The same patch as a text/html response. Datastar morphs each top-level element by id."
+  [visits]
+  {:status  200
+   :headers {"Content-Type" "text/html"}
+   :body    (greeting-html visits)})</code></pre>
+
+  <p>The browser ends up in the same state. Why bother with SSE at all? Because one HTML response
+    can carry one patch, and one event stream can carry many, of different kinds, over time. Part 3
+    sends an element patch and a signal patch in the same response. Part 6 holds one stream open
+    for the life of the page. Use <code>text/html</code> when the answer really is one element;
+    use the stream for everything else. The rest of this series mostly uses the stream, because
+    the same writer then covers every case.</p>
+
+  <div id="viz-content-type"></div>
+
+  <h2>What the browser didn't do</h2>
+
+  <p>Look at the list of things that didn't happen during that click. No JSON was parsed into a
+    model. No component tree re-rendered. No client-side router changed. The browser had no idea
+    what a "greeting" is. It had an id and some HTML. Everything that knows about greetings (and
+    later about drinks, carts, and orders) lives in one place, the Clojure process.</p>
+
+  <p>That has a consequence that this series comes back to in its last part. Anything that can
+    load a web page and run <code>fetch</code> can host this UI unchanged, and the server decides
+    what that UI looks like on every response. Keep that in mind when you get to part 7.</p>
+
+  <p>It also has a cost, and it's fair to name it now. Every interaction that needs the server's
+    knowledge pays a round trip. A drop-down whose options depend on stock (part 4) can't fill
+    itself without asking. Part 3 shows how Datastar handles the interactions that don't need the
+    server at all (a counter, a computed total, showing and hiding things) entirely in the
+    browser, with signals.</p>
+
+  <div class="code-ref"><p><code>clojure/src/lesson01/hypermedia.clj</code> (ns
+    <code>lesson01.hypermedia</code>): the page, <code>sse-event</code>, <code>hello-response</code>,
+    and the <code>text/html</code> variant. The demo starts http-kit on a free port, sends the
+    same GET the button sends (with <code>Datastar-Request: true</code> and
+    <code>datastar=%7B%7D</code>), and prints the raw response:
+    <code>cd clojure &amp;&amp; clojure -M -m lesson01.hypermedia</code>. To click the button
+    yourself, call <code>(start! 8080)</code> at the REPL and open
+    <code>http://localhost:8080/</code>.</p></div>
+
+  <div class="build-it"><p>The exercise track for this part: <code>sse-event</code> (format one
+    event from a type and a list of data lines) and <code>hello-response</code> (the Ring response:
+    status, the two headers, and the body). Hints are on the
+    <a href="../exercises.html">exercises page</a>. Fill in the TODOs until the tests pass:</p>
+<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson01.hypermedia-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>The one thing to remember.</p></div>
+  <div class="takeaway"><p>A Datastar interaction is a request from a <code>data-on</code>
+    expression and a response the browser applies as patches. The response is usually
+    <code>text/event-stream</code>: <code>event: datastar-patch-elements</code>, one
+    <code>data: elements …</code> line per line of HTML, a blank line. Datastar finds the target
+    by id and morphs it. A one-shot stream is just a Ring response with a string body.</p></div>

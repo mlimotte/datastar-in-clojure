@@ -1,30 +1,283 @@
+<style>
+  .so-list { display: grid; gap: .5rem; }
+  .so-item { border: 1.5px solid var(--rule); border-radius: 8px; padding: .5rem .7rem; background: var(--bg); }
+  .so-item.right { border-color: var(--good); }
+  .so-item.wrong { border-color: var(--bad); }
+  .so-q { font-weight: 600; font-size: .9rem; margin-bottom: .35rem; }
+  .so-opts { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .so-opts button { font-size: .78rem; }
+  .so-opts button.on { background: var(--accent-soft); border-color: var(--accent); }
+  .so-why { font-size: .8rem; color: var(--ink-soft); margin-top: .35rem; }
+  .so-score { font-weight: 600; }
+  .dd-grid { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(16rem, 1.3fr); gap: 1rem; align-items: start; }
+  @media (max-width: 700px) { .dd-grid { grid-template-columns: 1fr; } }
+  .dd-label { font: 600 .7rem/1 var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin: 0 0 .35rem; }
+  .dd-ui { border: 1px dashed var(--rule); border-radius: 6px; padding: .55rem .7rem; font-size: .85rem; margin-bottom: .8rem; display: grid; gap: .35rem; }
+  .dd-ui select { font-size: .82rem; }
+  .dd-ui .muted { color: var(--ink-faint); }
+  .dd-ui .flash { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 3px; }
+  .dd-sig { font: .78rem/1.5 var(--mono); }
+  .dd-sig .ch { background: var(--accent-soft); color: var(--accent); border-radius: 3px; }
+  .dd-wire { font: .74rem/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0; padding: .5rem .6rem; background: var(--bg-sunk); border-radius: 6px; min-height: 5rem; }
+</style>
   <h1>When to use a signal</h1>
-  <p class="dek">One or two sentences: what you'll understand by the end.</p>
+  <p class="dek">Every piece of state in a Datastar app has one home: the server, a signal, a
+    private <code>_</code> signal, or HTML the server renders. This part gives a rule for
+    choosing, places every piece of Brew Board's state with it, and builds the case where the
+    choice is least obvious: a drop-down whose options depend on the menu and on what's in
+    stock.</p>
 
-  <!-- Warm-up: three recall cards from the previous part (renders nothing in part 1). -->
   <div data-warmup></div>
 
-  <p>Prose…</p>
+  <p>Part 3 ended with a smell. The server computed a price and sent it back as a number, so the
+    page had to know where to put it, how to format it, and what to show next to it. Nothing broke.
+    But follow that road for a few weeks and you end up with the whole app's state in signals,
+    every view built from <code>data-text</code> and <code>data-show</code>, and the server
+    reduced to a JSON API. That's a single-page app with fewer tools.</p>
 
-  <h2>Section</h2>
-<pre class="pseudo">function eval(expr)
-  match expr
-    case Lit(v)  -> return v          -- pseudocode: ML-style match, -- comments
-</pre>
-  <p class="caption">Caption under a code block or figure.</p>
+  <p>Datastar's design pushes the other way. The server renders HTML, the browser patches it in,
+    and signals carry the little bit of state that only exists in the browser. The hard part is
+    knowing which bit that is.</p>
 
-  <!-- Figures: add <div id="viz-name"></div> here and site/viz/NN-slug.js that calls
-       EE.frame("#viz-name", "Title", "subtitle") (see the kit's references/figures.md). -->
+  <h2>The rule</h2>
 
-  <div class="code-ref"><p><code>clojure/src/lesson01/hello.clj</code> · <code>go/lesson01/hello.go</code>.
-    Run with <code>clojure -M -m lesson01.hello</code> / <code>go run ./cmd/lesson01</code>.</p>
-    <p>Or run it right here: <a href="../terminal.html#lesson01">open the terminal</a>.</p></div>
+  <p>Ask these in order. The first "yes" decides.</p>
 
-  <div class="build-it"><p>The exercise track for this part: <code>add</code> (hints on the
-    <a href="../exercises.html">exercises page</a>). Fill in the TODOs until the tests pass:</p>
-<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson01.hello-test
-cd go &amp;&amp; go test ./exercises/lesson01/</code></pre></div>
+  <ol>
+    <li><strong>Does anyone besides this tab need it, or must it survive a reload?</strong>
+      Another device, another person, the next page load, the server's own rules. Then it lives
+      on the <em>server</em>. Carts, orders, stock, the signed-in user.</li>
+    <li><strong>Is it a list or a block of markup that depends on server data?</strong> Then the
+      server <em>renders it as HTML</em>. It is never mirrored into a signal. The options in a
+      drop-down, the rows of a table, a "sold out" label.</li>
+    <li><strong>Is it input the user hasn't committed yet?</strong> Then it's a <em>signal</em>.
+      It goes to the server with the request that commits it, and the server validates it. A form
+      in progress, a search box, a quantity stepper.</li>
+    <li><strong>Is it purely about presentation in this tab?</strong> Then it's a
+      <em><code>_</code>-prefixed signal</em>, which never leaves the browser. Whether a menu is
+      open, which tab is selected, whether a request is in flight.</li>
+  </ol>
+
+  <p>Values derived from those for display, like part 3's <code>$estimate</code>, can be
+    <code>data-computed</code> for instant feedback, as long as the server computes the real value
+    again whenever it matters. A computed signal is a convenience, never evidence.</p>
+
+  <p>Applied to Brew Board:</p>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>state</th><th>home</th><th>why</th></tr></thead>
+    <tbody>
+      <tr><td>drink being configured: <code>drink size milk qty</code></td><td>signals</td><td>input in progress; sent with "Add to cart"</td></tr>
+      <tr><td>customer name</td><td>signal <code>customer</code></td><td>input; sent with "Place order"</td></tr>
+      <tr><td>is a menu open, hover, local toggles</td><td><code>_</code> signal, e.g. <code>_open</code></td><td>presentation only, never sent</td></tr>
+      <tr><td>request in flight</td><td><code>data-indicator:_loading</code></td><td>presentation only, transient</td></tr>
+      <tr><td>displayed estimate</td><td><code>data-computed</code>, recomputed on the server</td><td>display convenience; the server is the price authority</td></tr>
+      <tr><td>cart lines</td><td>server, keyed by a <code>sid</code> cookie</td><td>survives reload, works across devices, validated against stock</td></tr>
+      <tr><td>orders, statuses, sold-out milks</td><td>server</td><td>shared between people</td></tr>
+      <tr><td>the size and milk option lists</td><td>server-rendered HTML</td><td>depend on menu and stock</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Try placing these yourself before reading on. Some are deliberately close calls.</p>
+
+  <div id="viz-sorter"></div>
+
+  <h2>Why the cart is not a signal</h2>
+
+  <p>The cart is the most tempting thing to put in a signal. It's per-customer, it changes on
+    every click, and a <code>$cart</code> array with <code>data-text</code> totals would update
+    instantly. Here is what it would cost:</p>
+
+  <ul>
+    <li><strong>It travels with every request.</strong> A non-<code>_</code> signal is in every
+      payload. Each drop-down change would send the whole cart to <code>/drink-options</code>,
+      which has no use for it.</li>
+    <li><strong>It's a second copy.</strong> Ada adds a latte on her phone; her laptop's
+      <code>$cart</code> doesn't know. Reload and the cart is gone, unless you add storage, and
+      then you have three copies.</li>
+    <li><strong>The server has to check it anyway.</strong> When the order is placed, the server
+      can't trust the lines or the prices it receives, so it validates everything again. The client
+      copy saved no work.</li>
+  </ul>
+
+  <p>So the cart lives in the server's state atom, keyed by a session id. The first page load
+    sets a cookie, and Datastar's fetches are same-origin, so every request carries it:</p>
+
+<pre><code class="language-clojure">(defn page-response [req]
+  (let [sid (or (sid-of req) (str (UUID/randomUUID)))]
+    (cond-&gt; (sse/html-response (page @state sid))
+      (not (sid-of req)) (assoc :cookies {"sid" {:value sid :path "/" :http-only true :same-site :lax}}))))
+
+(defn add-to-cart
+  "Add the draft to the cart of session sid. Return the new state, or nil when the draft is
+  not valid (sold-out milks count)."
+  [state sid draft]
+  (when-not (draft-error draft (:sold-out state))
+    (update-in state [:carts sid] (fnil conj []) (select-keys draft [:drink :size :milk :qty]))))</code></pre>
+
+  <p>"Add to cart" is <code>@post('/cart/items')</code>. The draft signals arrive as the JSON body.
+    The handler validates them against the menu and the current stock, updates the atom, and
+    answers with two events: the re-rendered <code>#cart</code> as HTML, and
+    <code>{"error": ""}</code> to clear any old message. On a bad draft it sends only
+    <code>{"error": "Oat milk is sold out."}</code>. The cart's markup, its line format, and its
+    total are server code. The browser holds none of it.</p>
+
+  <p>Notice what's in the signals and what isn't. The <em>draft</em> (one line being configured)
+    is a signal, because it is input. Once committed, the line becomes server state, and from then
+    on the browser only ever sees it as HTML.</p>
+
+  <h2>The drop-down</h2>
+
+  <p>Now the hard case. When the customer picks a drink, the size and milk drop-downs have to
+    change: an espresso comes in single or double and takes no milk, a cappuccino comes in small
+    or medium with whole or oat. And when Sam marks oat milk sold out, oat must show as
+    unavailable.</p>
+
+  <p>The SPA reflex is to ship the menu and the stock to the browser as signals and build the
+    <code>&lt;option&gt;</code>s with expressions. Run the rule instead. The option list depends on
+    server data (rule 2), so it's HTML from the server. The selected values are input (rule 3), so
+    they're signals. The drop-down is both, and the boundary runs between the
+    <code>&lt;option&gt;</code> list and the <code>value</code>.</p>
+
+<pre><code class="language-clojure">[:select#drink {:data-bind:drink "" :data-on:change "@get('/drink-options')"}
+ (for [[k {:keys [name]}] menu]
+   [:option (cond-&gt; {:value (clojure.core/name k)} (= k :latte) (assoc :selected "")) name])]
+(drink-options-view :latte sold-out choice)</code></pre>
+
+  <p>The drink select is bound to <code>$drink</code> and, on <code>change</code>, asks the
+    server for new options. Both <code>data-bind</code> and <code>data-on:change</code> listen to
+    the same <code>change</code> event, so their order matters: the binding has to update
+    <code>$drink</code> before the request serializes the signals. Listeners run in the order they
+    were added, attributes are applied in source order, and hiccup sorts
+    <code>data-bind:drink</code> before <code>data-on:change</code>. The request carries the new
+    drink. (If you ever need to be explicit, read the value from the event instead:
+    <code>evt.target.value</code>.)</p>
+
+  <p>The options themselves are a pure function of the drink, the sold-out set, and the current
+    choice:</p>
+
+<pre><code class="language-clojure">(defn drink-options-view
+  "The #drink-options element: a size select and a milk select for this drink. The option
+  lists exist only here, as HTML from the server."
+  [drink sold-out {:keys [size milk]}]
+  (let [{:keys [sizes milks]} (menu drink)]
+    [:div#drink-options
+     [:label "Size "
+      [:select#size {:data-bind:size ""}
+       (for [s sizes]
+         [:option (cond-&gt; {:value (name s)} (= s size) (assoc :selected "")) (label s)])]]
+     (if (seq milks)
+       [:label " Milk "
+        [:select#milk {:data-bind:milk ""}
+         (for [m milks]
+           [:option (cond-&gt; {:value (name m)}
+                      (= m milk)   (assoc :selected "")
+                      (sold-out m) (assoc :disabled ""))
+            (cond-&gt; (label m) (sold-out m) (str " (sold out)"))])]]
+       [:p.muted "No milk"])]))</code></pre>
+
+  <p>When the drink changes, the old size or milk may not exist for the new drink. Medium has no
+    meaning for an espresso. <code>valid-choice</code> keeps each value if it's still allowed (and
+    in stock) and otherwise takes the first one that is. The response then carries two events:</p>
+
+<pre><code class="language-clojure">(defn drink-options-response
+  "Answer a change of drink: new option lists, and new size/milk signals where the old ones
+  no longer fit."
+  [signals sold-out]
+  (let [{:keys [drink size milk]} (-&gt;draft signals)
+        choice  (valid-choice drink sold-out {:size size :milk milk})
+        changed (cond-&gt; {}
+                  (not= size (:size choice)) (assoc :size (name (:size choice)))
+                  (not= milk (:milk choice)) (assoc :milk (or (some-&gt; (:milk choice) name) "")))]
+    (sse/sse-response
+     (sse/patch-elements (str (h/html (drink-options-view drink sold-out choice))) {})
+     (sse/patch-signals changed {}))))</code></pre>
+
+  <p>The first event replaces <code>#drink-options</code> by id, with the chosen options marked
+    <code>selected</code>. The second sets only the signals whose old value no longer fits. Both
+    are needed. The DOM shows the new selection, but the signals are what the next request sends,
+    and a <code>$size</code> still saying <code>"medium"</code> would put a medium espresso in the
+    cart.</p>
+
+  <div id="predict-milk"></div>
+
+  <p>The milk-less case is a decision worth looking at. An espresso has no milk, so the obvious
+    patch is <code>{"milk": null}</code>. But a merge patch treats <code>null</code> as "remove this
+    signal". <code>$milk</code> would disappear from the store and from every later payload, and
+    the server would have to treat "missing" and "none" as the same thing. The lesson sends
+    <code>""</code> instead. The key stays in every request, the value stays a string, and
+    <code>-&gt;draft</code> turns <code>""</code> into <code>nil</code> on the way in. When nothing
+    needs to change (mocha to mocha, say), <code>changed</code> is empty and the second event is
+    <code>{}</code>, a merge patch that does nothing.</p>
+
+  <p>Step through the cases. Each one is the exact response <code>drink-options-response</code>
+    produces.</p>
+
+  <div id="viz-dropdown"></div>
+
+  <p>One more property comes free. If the customer flicks through drinks quickly, several
+    <code>/drink-options</code> requests could be in flight at once, and a slow early response
+    could land after a fast late one. Datastar prevents that by default. With
+    <code>requestCancellation: 'auto'</code>, <code>fetch.ts</code> keeps one
+    <code>AbortController</code> per method and URL and aborts the previous request to the same
+    URL when a new one starts. Only the last drink's options are applied.</p>
+
+  <h2>A searchable variant</h2>
+
+  <p>The same split works for a combobox with server-side search, which is a good exercise once
+    the lesson passes. The text the customer types is input, so it's a signal, and it must
+    <em>not</em> start with an underscore, because the server needs it. Whether the list is open is
+    presentation, so it's private:</p>
+
+<pre><code class="language-html">&lt;div data-signals="{query: '', _open: false}"&gt;
+  &lt;input data-bind:query
+         data-on:input__debounce.200ms="@get('/drinks/search')"
+         data-on:focus="$_open = true"&gt;
+  &lt;ul id="drink-results" data-show="$_open"&gt;&lt;/ul&gt;
+&lt;/div&gt;</code></pre>
+
+  <p>The server filters the menu by <code>query</code> and answers with a patch of
+    <code>#drink-results</code>. Nothing about the menu is sent to the browser except the matching
+    rows as HTML. The <code>__debounce.200ms</code> modifier waits until typing pauses for 200&nbsp;ms
+    before sending.</p>
+
+  <h2>What happens when oat sells out</h2>
+
+  <p>Run the lesson, open two browser windows, and mark oat sold out at the REPL. Nothing changes
+    in either window until someone picks a different drink. The next <code>/drink-options</code>
+    response renders oat as <code>disabled</code> and moves any oat selection to whole. And if a
+    window loaded before the change and its <code>$milk</code> still says oat,
+    <code>add-to-cart</code> refuses it, because the server checks stock on every add. The state is
+    right. The <em>display</em> is stale until the next request.</p>
+
+  <p>That's the honest limit of request/response. Part 6 removes it without changing the decision
+    made here: the drop-down stays server-rendered HTML, and the moment Sam marks oat sold out,
+    every open customer page will show it, with no code specific to the drop-down. That only works
+    because the option list was never a signal.</p>
+
+  <div class="code-ref"><p><code>clojure/src/lesson04/where_state_lives.clj</code> (ns
+    <code>lesson04.where-state-lives</code>): <code>valid-choice</code>,
+    <code>drink-options-view</code>, <code>drink-options-response</code>, the server-owned cart
+    (<code>add-to-cart</code>, <code>cart-view</code>, <code>add-item-response</code>), and the
+    <code>sid</code> cookie. The demo gets a cookie, switches to espresso, marks oat sold out and
+    switches to latte, adds two whole-milk lattes, then replays a stale page that still says oat:
+    <code>cd clojure &amp;&amp; clojure -M -m lesson04.where-state-lives</code>. In a browser,
+    <code>(start! 8080)</code>, then
+    <code>(swap! lesson04.where-state-lives/state update :sold-out conj :oat)</code> at the
+    REPL.</p></div>
+
+  <div class="build-it"><p>The exercise track for this part: <code>drink-options-view</code> (the
+    hiccup for <code>#drink-options</code>, with <code>selected</code>, <code>disabled</code>, and
+    "(sold out)"), <code>drink-options-response</code> (two events; only changed signals; a missing
+    milk as <code>""</code>), and <code>add-to-cart</code> (validate against the state's sold-out
+    set, append, or return nil). Hints are on the <a href="../exercises.html">exercises
+    page</a>.</p>
+<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson04.where-state-lives-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>The one thing to remember.</p></div>
+  <div class="takeaway"><p>Shared or durable state lives on the server. Anything derived from
+    server data, like an option list, is server-rendered HTML. Uncommitted input is a signal that
+    goes to the server with the command that commits it. Presentation-only state is a
+    <code>_</code> signal. A drop-down splits across that line: options are HTML, the selected value
+    is a signal, and when the drink changes the server sends both.</p></div>

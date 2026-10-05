@@ -1,30 +1,299 @@
+<style>
+  .eb-grid { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(16rem, 1.2fr); gap: 1rem; align-items: start; }
+  @media (max-width: 700px) { .eb-grid { grid-template-columns: 1fr; } }
+  .eb-form { display: grid; grid-template-columns: auto 1fr; gap: .4rem .6rem; align-items: center; font-size: .85rem; }
+  .eb-form select, .eb-form input[type=text], .eb-form textarea { font: .8rem/1.3 var(--mono); width: 100%; box-sizing: border-box; background: var(--bg); color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; padding: .2rem .35rem; }
+  .eb-form textarea { min-height: 4.2rem; resize: vertical; }
+  .eb-label { font: 600 .7rem/1 var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin: .2rem 0 .35rem; }
+  .eb-wire { font: .76rem/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0 0 .8rem; padding: .5rem .6rem; background: var(--bg-sunk); border-radius: 6px; }
+  .eb-dom { font: .78rem/1.5 var(--mono); padding: .5rem .6rem; border: 1px dashed var(--rule); border-radius: 6px; }
+  .eb-dom div { white-space: pre; }
+  .eb-dom .new { background: var(--teal-soft); color: var(--teal); }
+  .eb-dom .kept { color: var(--ink-soft); }
+  .eb-dom .err { color: var(--bad); white-space: normal; }
+  .ps-chunks { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .6rem; }
+  .ps-chunk { font: .72rem/1.3 var(--mono); padding: .2rem .35rem; border-radius: 4px; background: var(--bg-sunk); border: 1px solid var(--rule); white-space: pre; }
+  .ps-chunk.cur { border-color: var(--accent); background: var(--accent-soft); }
+  .ps-chunk.done { opacity: .45; }
+  .ps-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .8rem; }
+  @media (max-width: 700px) { .ps-cols { grid-template-columns: 1fr; } }
+  .ps-col pre { font: .74rem/1.4 var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0; padding: .4rem .5rem; background: var(--bg-sunk); border-radius: 6px; min-height: 4rem; }
+</style>
   <h1>The event stream</h1>
-  <p class="dek">One or two sentences: what you'll understand by the end.</p>
+  <p class="dek">Datastar's server side is a text format with two event types and a handful of
+    options. We write the whole thing (six short functions of Clojure), test it against the
+    expected output Datastar publishes for its own SDKs, and then hold a stream open so the
+    server can keep talking.</p>
 
-  <!-- Warm-up: three recall cards from the previous part (renders nothing in part 1). -->
   <div data-warmup></div>
 
-  <p>Prose…</p>
+  <p>Part 1 wrote one event by hand. That's enough to say hello, but Brew Board needs more: replace
+    a cart, append an order to the barista's list, remove a picked-up order, set a signal, run a
+    line of JavaScript. All of those are options on two event types. The Datastar repository has an
+    <code>sdk/ADR.md</code> that specifies them for anyone writing a server library, and a directory
+    of test cases (<code>sdk/test/get-cases</code>) with the exact bytes each call must produce.
+    Datastar's own SDKs are written against those. So is ours.</p>
 
-  <h2>Section</h2>
-<pre class="pseudo">function eval(expr)
-  match expr
-    case Lit(v)  -> return v          -- pseudocode: ML-style match, -- comments
+  <h2>One function writes every event</h2>
+
+<pre><code class="language-clojure">(defn send-event
+  "Format one SSE event. Add an id line if id is set. Add a retry line unless retry is nil or 1000."
+  [event-type data-lines {:keys [id retry]}]
+  (str "event: " event-type "\n"
+       (when id (str "id: " id "\n"))
+       (when (and retry (not= 1000 retry)) (str "retry: " retry "\n"))
+       (string/join (map #(str "data: " % "\n") data-lines))
+       "\n"))</code></pre>
+
+  <p>The ADR fixes the order: <code>event</code>, then <code>id</code> if there is one, then
+    <code>retry</code> unless it is the default of 1000&nbsp;ms, then the data lines, then a blank
+    line. <code>id</code> and <code>retry</code> are standard SSE fields, not Datastar inventions.
+    When a stream drops and Datastar reconnects, it sends the last id it saw as a
+    <code>last-event-id</code> request header, and a <code>retry</code> field sets how long it
+    waits before reconnecting. Part 6 uses both. For one-shot responses you'll rarely set them.</p>
+
+  <p>Everything else is a function that decides which data lines to pass.</p>
+
+  <h2>datastar-patch-elements</h2>
+
+  <p>The data lines are <code>key value</code> pairs. For element patches the keys are:</p>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>key</th><th>written when</th><th>meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>selector</code></td><td>given</td><td>CSS selector for the target(s). Without it, each top-level element is matched by its id.</td></tr>
+      <tr><td><code>mode</code></td><td>not <code>outer</code></td><td>how to apply the HTML (table below)</td></tr>
+      <tr><td><code>useViewTransition</code></td><td><code>true</code></td><td>wrap the patch in the View Transitions API, where the browser supports it</td></tr>
+      <tr><td><code>namespace</code></td><td>not <code>html</code></td><td><code>svg</code> or <code>mathml</code>, for elements that must be created in that namespace</td></tr>
+      <tr><td><code>elements</code></td><td>there is HTML</td><td>one line per line of HTML</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Defaults are omitted, so the common case is a single <code>elements</code> line, which is
+    exactly part 1's event. The eight modes are where the decisions are:</p>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>mode</th><th>does</th><th>morphs?</th><th>needs selector?</th></tr></thead>
+    <tbody>
+      <tr><td><code>outer</code></td><td>the new element replaces the target (default)</td><td>yes</td><td>no: matched by id</td></tr>
+      <tr><td><code>inner</code></td><td>the new HTML becomes the target's children</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>replace</code></td><td>swap the element outright; no state survives</td><td>no</td><td>no: matched by id</td></tr>
+      <tr><td><code>prepend</code> / <code>append</code></td><td>insert as first / last child of the target</td><td>no</td><td>yes</td></tr>
+      <tr><td><code>before</code> / <code>after</code></td><td>insert as previous / next sibling of the target</td><td>no</td><td>yes</td></tr>
+      <tr><td><code>remove</code></td><td>delete the target; no HTML needed</td><td>no</td><td>yes</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The last column comes from one line in <code>patchElements.ts</code>: if there is no
+    selector and the mode is neither <code>outer</code> nor <code>replace</code>, Datastar throws
+    <code>PatchElementsExpectedSelector</code>. Only those two modes can find their target from
+    the payload's ids. A selector, on the other hand, can match many elements. Datastar runs
+    <code>querySelectorAll</code> and applies the patch to every match, so
+    <code>mode remove</code> with <code>selector .picked-up</code> deletes all of them.</p>
+
+  <p>"Morphs" is the difference between <code>outer</code> and <code>replace</code>. Both put
+    the new element where the old one was. <code>outer</code> walks old and new together and
+    changes only what differs, so a text input the user is typing in keeps its focus and cursor.
+    <code>replace</code> throws the old element away. Part 6 sends a whole page view on every
+    change and relies on <code>outer</code> to make that harmless.</p>
+
+<pre><code class="language-clojure">(defn patch-elements
+  "A datastar-patch-elements event. Send only options that differ from the defaults."
+  [html {:keys [selector mode use-view-transition view-transition-selector namespace] :as opts}]
+  (send-event "datastar-patch-elements"
+              (concat (when selector [(str "selector " selector)])
+                      (when (and mode (not= "outer" (name mode))) [(str "mode " (name mode))])
+                      (when use-view-transition ["useViewTransition true"])
+                      (when (and use-view-transition view-transition-selector)
+                        [(str "viewTransitionSelector " view-transition-selector)])
+                      (when (and namespace (not= "html" (name namespace)))
+                        [(str "namespace " (name namespace))])
+                      (when html (prefix-lines "elements" html)))
+              opts))
+
+(defn remove-elements
+  "Remove every element that matches the CSS selector."
+  [selector opts]
+  (patch-elements nil (assoc opts :selector selector :mode :remove)))</code></pre>
+
+  <p>Multi-line HTML becomes several <code>elements</code> lines. That's not optional: a raw
+    newline inside a data line would end the line, and the rest of the HTML would arrive as a
+    malformed field. On the browser side the parser groups data lines by key and joins each
+    group with <code>\n</code>, so the HTML arrives back in one piece.</p>
+
+  <p>Build some events. Change the mode, the selector, and the HTML, and watch both the wire
+    text and what the toy page does with it.</p>
+
+  <div id="predict-inner"></div>
+
+  <div id="viz-builder"></div>
+
+  <h2>The order of data lines doesn't matter</h2>
+
+  <p>Look at the SDK test cases closely and you'll find that they disagree. In
+    <code>patchElementsWithAllOptions</code> the <code>selector</code> line comes before
+    <code>mode</code>. In <code>removeElementsWithDefaults</code> and in every
+    <code>executeScript</code> case, <code>mode</code> comes first. Both are correct. The
+    script that runs those tests, <code>sdk/test/compare-sse.sh</code>, sorts data lines by key
+    before comparing, keeping the order of lines within a key. That matches the browser: in
+    <code>fetch.ts</code>, the message handler splits each data line at its first space and
+    collects lines into a map keyed by the word before it. Only the order of lines that share a key
+    (the lines of one HTML block) is significant. The golden-file test in our lesson normalizes
+    the same way, so it can pass with either order.</p>
+
+  <h2>Reading a stream, from the browser's side</h2>
+
+  <p>The network doesn't deliver events. It delivers chunks of bytes, and a chunk boundary can
+    fall anywhere, including the middle of a line. Datastar's reader in <code>fetch.ts</code> is a
+    three-stage pipeline: bytes to lines, lines to messages, messages to patches.</p>
+
+<pre class="pseudo">on chunk(bytes)
+  buffer = buffer ++ bytes
+  for each complete line in buffer          -- ends at \n, \r, or \r\n
+    if line == ""            -> dispatch(message); message = new()
+    else
+      (field, value) = split line at first ":"   -- one optional space after it
+      match field
+        case "data"  -> message.data = message.data ++ "\n" ++ value   -- first one: no "\n"
+        case "event" -> message.event = value
+        case "id"    -> message.id = value; remember it for last-event-id
+        case "retry" -> if value is an integer: retryInterval = value
+  keep the unfinished tail in buffer
+
+dispatch(message)
+  if not message.event starts with "datastar" -> ignore
+  args = group lines of message.data by the word before the first space
+  apply(message.event, args)                 -- patch elements or patch signals
 </pre>
-  <p class="caption">Caption under a code block or figure.</p>
 
-  <!-- Figures: add <div id="viz-name"></div> here and site/viz/NN-slug.js that calls
-       EE.frame("#viz-name", "Title", "subtitle") (see the kit's references/figures.md). -->
+  <p>Step through a stream that arrives in awkward pieces. Nothing happens to the page until a
+    blank line completes an event, and the chunk boundaries never matter.</p>
 
-  <div class="code-ref"><p><code>clojure/src/lesson01/hello.clj</code> · <code>go/lesson01/hello.go</code>.
-    Run with <code>clojure -M -m lesson01.hello</code> / <code>go run ./cmd/lesson01</code>.</p>
-    <p>Or run it right here: <a href="../terminal.html#lesson01">open the terminal</a>.</p></div>
+  <div id="viz-parse"></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>add</code> (hints on the
-    <a href="../exercises.html">exercises page</a>). Fill in the TODOs until the tests pass:</p>
-<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson01.hello-test
-cd go &amp;&amp; go test ./exercises/lesson01/</code></pre></div>
+  <h2>datastar-patch-signals</h2>
+
+  <p>The second event type changes signals instead of elements. Part 3 explains signals
+    properly. For now: they're the page's reactive values, a JSON-shaped tree. The event carries
+    a JSON object and applies it as an <a href="https://datatracker.ietf.org/doc/html/rfc7386">RFC
+    7386 JSON Merge Patch</a>: keys in the patch are set, nested objects merge recursively, and a
+    <code>null</code> value removes the signal.</p>
+
+<pre><code class="language-clojure">(defn patch-signals
+  "A datastar-patch-signals event. Signals is a map (encoded as JSON) or a JSON string.
+  The client merges it as a JSON Merge Patch: a null value removes that signal."
+  [signals {:keys [only-if-missing] :as opts}]
+  (send-event "datastar-patch-signals"
+              (concat (when only-if-missing ["onlyIfMissing true"])
+                      (prefix-lines "signals" (cond-&gt; signals (not (string? signals)) json/generate-string)))
+              opts))</code></pre>
+
+  <p><code>(patch-signals {:quote 560 :error nil} {})</code> produces:</p>
+
+<pre class="pseudo">event: datastar-patch-signals
+data: signals {"quote":560,"error":null}
+</pre>
+
+  <p>which sets <code>$quote</code> to 560 and removes <code>$error</code>.
+    <code>onlyIfMissing true</code> sets only the keys that don't exist yet. That's useful for
+    defaults that must not clobber what the user already typed.</p>
+
+  <div class="aside"><p>The browser parses the payload with <code>JSON.parse</code>. If that
+    fails, <code>jsStrToObject</code> in <code>utils/text.ts</code> falls back to evaluating the
+    string as a JavaScript expression, so <code>{quote: 560}</code> without quoted keys would also
+    work. Don't rely on it. cheshire produces real JSON, and real JSON never goes through the
+    evaluator.</p></div>
+
+  <h2>Running a script</h2>
+
+  <p>There is no third event type for JavaScript. The ADR defines "execute script" as a
+    patch-elements event that appends a <code>&lt;script&gt;</code> to <code>body</code>:</p>
+
+<pre><code class="language-clojure">(defn execute-script
+  "Run JavaScript in the browser: append a &lt;script&gt; to body. With auto-remove (the default)
+  the script tag removes itself after it runs."
+  [js {:keys [auto-remove attributes] :or {auto-remove true} :as opts}]
+  (let [attrs (cond-&gt; (mapv (fn [[k v]] (str " " (name k) "=\"" v "\"")) attributes)
+                auto-remove (conj " data-effect=\"el.remove()\""))]
+    (patch-elements (str "&lt;script" (string/join attrs) "&gt;" js "&lt;/script&gt;")
+                    (assoc opts :selector "body" :mode :append))))</code></pre>
+
+  <p>Two details make that work. Scripts inserted with <code>innerHTML</code>-style parsing don't
+    run, so <code>patchElements.ts</code> replaces each new <code>&lt;script&gt;</code> with a
+    freshly created one, which does. And <code>data-effect="el.remove()"</code> is an ordinary
+    Datastar attribute: an effect runs when the element is processed and again whenever a signal
+    it read changes. <code>el.remove()</code> reads no signals, so it runs exactly once and deletes
+    the tag, so a page that runs a thousand scripts doesn't accumulate a thousand tags. Use this
+    sparingly. Brew Board uses it once, in part 7, to talk to the native shell.</p>
+
+  <h2>Holding the stream open</h2>
+
+  <p>Every response so far has ended after its events. Nothing in the format requires that. A
+    stream can stay open and deliver events whenever the server has something to say. That needs
+    an asynchronous response, because a Ring handler that returns a map returns once. http-kit's
+    <code>as-channel</code> gives the handler a channel to keep:</p>
+
+<pre><code class="language-clojure">(defn clock-handler
+  "Hold the response open. Send one patch per tick, at most `ticks` times, then close.
+  Stop early when the client goes away."
+  [req tick-ms ticks]
+  (hk/as-channel
+   req
+   {:on-open  (fn [ch]
+                (hk/send! ch {:status 200 :headers stream-headers} false)
+                (future
+                  (loop [n 1]
+                    (when (and (hk/open? ch) (&lt;= n ticks))
+                      (hk/send! ch (patch-elements (clock-html n) {}) false)
+                      (Thread/sleep (long tick-ms))
+                      (recur (inc n))))
+                  (hk/close ch)))
+    :on-close (fn [_ status] (swap! closes conj status))}))</code></pre>
+
+  <p>The first <code>send!</code> carries the status and headers. Each later one carries a
+    complete event as one string, with <code>close?</code> false. Sending a whole event per call
+    matters. The ADR asks implementations to "ensure ordered delivery", because two threads
+    writing half-events to one connection would interleave into garbage. One string per event
+    is the simplest way to get that. The SDK's http-kit adapter takes a lock instead, because it
+    can also write through a compressing output stream.</p>
+
+  <p>On the page, a held-open stream is just a GET that takes a long time to finish. The
+    lesson starts it from a button, <code>@get('/clock')</code>. A page that should be live from
+    the start uses <code>&lt;div data-init="@get('/clock')"&gt;</code> instead: <code>data-init</code>
+    runs its expression once, when Datastar processes the element. Each event updates
+    <code>#clock</code>. When the browser goes away, the connection closes and http-kit calls
+    <code>:on-close</code>, which is where part 6 unsubscribes the connection from the broadcast
+    hub. The lesson's demo checks this: it reads three ticks, drops the connection, and waits to
+    see <code>on-close</code> fire.</p>
+
+  <p>The <code>clock-handler</code> above is a toy. It's one thread per connection, and it sends
+    whether or not anything changed. Part 6 replaces the timer with "send when the state changes"
+    and replaces the thread with a watch on an atom. The format doesn't change. The stream is the
+    same text, only spread out in time.</p>
+
+  <div class="code-ref"><p><code>clojure/src/lesson02/event_stream.clj</code> (ns
+    <code>lesson02.event-stream</code>): <code>send-event</code>, <code>patch-elements</code>,
+    <code>remove-elements</code>, <code>patch-signals</code>, <code>execute-script</code>,
+    <code>sse-response</code>, and the <code>/clock</code> stream. The tests replay every case in
+    Datastar's <code>sdk/test/get-cases</code> (copied to <code>clojure/test/lesson02/cases/</code>)
+    and compare with the same per-key normalization as <code>compare-sse.sh</code>. The page's
+    first button gets one response with four events (append to <code>#feed</code>, patch
+    <code>#status</code> by id, set a signal, run a script). The demo prints one event of each kind,
+    then opens <code>/clock</code> and prints three ticks with their arrival times:
+    <code>cd clojure &amp;&amp; clojure -M -m lesson02.event-stream</code>.</p></div>
+
+  <div class="build-it"><p>The exercise track for this part: <code>send-event</code>,
+    <code>patch-elements</code>, <code>patch-signals</code>, and <code>execute-script</code>. The
+    golden cases are the tests, so when they pass, your writer produces the same bytes as
+    Datastar's official SDKs. Hints are on the <a href="../exercises.html">exercises page</a>.</p>
+<pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson02.event-stream-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>The one thing to remember.</p></div>
+  <div class="takeaway"><p>Datastar's server protocol is two SSE event types.
+    <code>datastar-patch-elements</code> carries <code>selector</code>, <code>mode</code>, and
+    <code>elements</code> lines; only <code>outer</code> and <code>replace</code> can work without a
+    selector, and only <code>outer</code>/<code>inner</code> morph.
+    <code>datastar-patch-signals</code> carries a JSON merge patch, where <code>null</code> deletes.
+    Data lines are grouped by key, so their order across keys doesn't matter. Hold the response
+    open and the same events become a live feed.</p></div>
