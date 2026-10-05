@@ -80,19 +80,30 @@
 
 (defn html [hiccup] (str (h/html hiccup)))
 
+(def default-draft
+  "The draft a browser starts with; matches the draft signals on the page."
+  {:drink :latte :size :small :milk :whole})
+
 (defn drink-options-view
-  "The size and milk drop-downs for one drink. The option lists are always server HTML."
-  [drink sold-out]
-  (let [{:keys [sizes milks]} (brew/drinks drink)]
+  "The size and milk drop-downs for one drink. The option lists are always server HTML.
+  `choice` is the stored draft {:size … :milk …}; its options render `selected`. The morph
+  rewrites options by position, so without `selected` a select can show one size while
+  $size holds another. Each select posts the draft on change, so the stored choice is real."
+  [drink sold-out {:keys [size milk]}]
+  (let [{:keys [sizes milks]} (brew/drinks drink)
+        option (fn [k selected? text & [disabled?]]
+                 [:option (cond-> {:value (name k)}
+                            selected? (assoc :selected "")
+                            disabled? (assoc :disabled "")) text])]
     [:div#drink-options
-     [:select#size {:data-bind:size ""}
-      (for [s sizes] [:option {:value (name s)} (str (brew/label s) " +" (brew/dollars (brew/size-delta s)))])]
+     [:select#size {:data-bind:size "" :data-on:change "@post('/draft')"}
+      (for [s sizes] (option s (= s size) (str (brew/label s) " +" (brew/dollars (brew/size-delta s)))))]
      (if (seq milks)
-       [:select#milk {:data-bind:milk ""}
+       [:select#milk {:data-bind:milk "" :data-on:change "@post('/draft')"}
         (for [m milks]
           (if (sold-out m)
-            [:option {:value (name m) :disabled ""} (str (brew/label m) " (sold out)")]
-            [:option {:value (name m)} (brew/label m)]))]
+            (option m (= m milk) (str (brew/label m) " (sold out)") true)
+            (option m (= m milk) (brew/label m))))]
        [:p.muted "No milk"])]))
 
 (defn- line-text [{:keys [drink size milk qty] :as line}]
@@ -106,11 +117,16 @@
      (when-not shell? [:h1 "Brew Board"])
      [:section#draft
       [:select#drink {:data-bind:drink "" :data-on:change "@post('/draft')"}
-       (for [{:keys [id name]} brew/menu] [:option {:value (clojure.core/name id)} name])]
-      (drink-options-view (get-in state [:drafts sid :drink] :latte) (:sold-out state))
+       (for [{:keys [id name]} brew/menu]
+         [:option (cond-> {:value (clojure.core/name id)}
+                    (= id (get-in state [:drafts sid :drink] :latte)) (assoc :selected "")) name])]
+      (let [draft (get-in state [:drafts sid] default-draft)]
+        (drink-options-view (:drink draft) (:sold-out state) draft))
       [:input {:type "number" :min "1" :data-bind:qty ""}]
       [:button#add-to-cart {:data-on:click "@post('/cart/items')"} "Add to cart"]
-      [:p.error {:data-text "$_error"}]]
+      ;; The client writes this text; the server renders it empty. data-ignore-morph keeps a
+      ;; whole-view re-render from resetting it to the server's markup.
+      [:p.error {:data-text "$_error" :data-ignore-morph ""}]]
      [:section#cart
       [:h2 "Cart"]
       (if (empty? lines)

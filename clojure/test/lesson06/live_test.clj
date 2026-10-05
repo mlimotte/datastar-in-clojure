@@ -107,13 +107,26 @@
         (is (= 200 status))
         (is (string/includes? body "data: signals {\"size\":\"single\",\"milk\":\"\"}"))
         (is (= {:drink :espresso :size :single :milk nil} (get-in @!state [:drafts "ada"])))
+        (is (string/includes? (last @sent) "<option selected=\"\" value=\"single\">"))
         (is (string/includes? (last @sent) "<option value=\"double\">"))))
+    (testing "the client-written error survives a re-render untouched"
+      (is (string/includes? (last @sent) "<p class=\"error\" data-ignore-morph=\"\" data-text=\"$_error\"></p>")))
     (testing "a draft that still fits answers 204"
       (is (= 204 (:status (call app :post "/draft" :sid "ada" :signals {:drink "latte" :size "large" :milk "almond"})))))
     (testing "the draft command is guarded like the others"
       (is (= 403 (:status (app {:request-method :post :uri "/draft" :headers {}})))))
     (testing "there is no GET /drink-options in part 6"
       (is (= 404 (:status (call app :get "/drink-options" :sid "ada")))))))
+
+(deftest drink-options-view-test
+  (let [v (l/html (l/drink-options-view :chai #{:oat} {:size :medium :milk :oat}))]
+    (testing "the stored choice renders selected, so the morph can't leave a stale option showing"
+      (is (string/includes? v "<option selected=\"\" value=\"medium\">"))
+      (is (string/includes? v "<option value=\"large\">")))
+    (testing "a sold-out milk is disabled (and still selected if it was the choice)"
+      (is (string/includes? v "<option disabled=\"\" selected=\"\" value=\"oat\">Oat (sold out)</option>")))
+    (testing "the size and milk selects post the draft on change"
+      (is (= 2 (count (re-seq #"data-on:change=\"@post\(&apos;/draft&apos;\)\"" v)))))))
 
 (deftest fit-draft-test
   (testing "a fitting draft is unchanged"
