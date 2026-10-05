@@ -21,7 +21,7 @@ How to *use* Datastar from Clojure, built up over seven parts toward one app, **
 | Thing | Version | Notes |
 |---|---|---|
 | Datastar JS | v1.0.4 | `<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js"></script>` (from the repo README) |
-| http-kit | 2.8.1 | latest stable; 2.9 is beta |
+| http-kit | 2.9.0-beta4 | beta on purpose: 2.8.1 never fires `:on-close` when an SSE client disconnects (verified by the lessons agent), so hubs would leak dead viewers |
 | reitit-ring | 0.11.0 | |
 | ring-core | 1.15.5 | params + cookies middleware |
 | hiccup | 2.0.0 | `hiccup2.core/html`, `hiccup.util/raw-string` |
@@ -237,8 +237,8 @@ Exercise ids are kebab-case, unique across the course. A region is a whole funct
 | 03 | `lesson03.signals` | draft form with `data-signals`, `data-bind`, `data-computed:price` (client), `data-text`, `data-show`, `data-class`, `data-indicator:_loading`; `GET /quote` reads signals and patches back the authoritative price and an error message | `read-signals`, `price-cents`, `quote-response` |
 | 04 | `lesson04.where-state-lives` | the drop-down (`drink-options-view`, `GET /drink-options`); server-owned cart keyed by `sid` (`POST /cart/items` validating the draft) | `drink-options-view`, `drink-options-response`, `add-to-cart` |
 | 05 | `lesson05.routes` | reitit route table for all commands/queries above (minus streams and native); pure `handle-command`; `wrap-datastar-request` guard; each command responds with the patches it changed (fragment-per-action style) | `handle-command`, `wrap-datastar-request`, `command-response` |
-| 06 | `lesson06.live` | hub (`subscribe!`, `unsubscribe!`, `broadcast!`), `add-watch` on the state atom → broadcast; per-subscriber `view-for` (customer sees own cart + own orders; board sees all); commands now return 204; a re-render that produces identical HTML for a subscriber is not resent | `view-for`, `broadcast!`, `stream-lifecycle` (the on-open/on-close fns) |
-| 07 | `lesson07.native-shell` | `shell-request?`, shell-aware layout, `/native/path-config`, `/native/device`, bridge script builder, ready-notification diff | `shell-request?`, `bridge-script`, `ready-notifications` (diff old/new state → `[{:sid … :message …}]` for orders that just became `:ready`) |
+| 06 | `lesson06.live` | hub (`subscribe!`, `unsubscribe!`, `broadcast!`), `add-watch` on the state atom → broadcast; per-subscriber `view-for` (customer sees own cart + own orders; board sees all); commands now return 204; a re-render that produces identical HTML for a subscriber is not resent | `view-for`, `broadcast`, `stream-lifecycle` (the on-open/on-close fns) |
+| 07 | `lesson07.native-shell` | `shell-request?`, shell-aware layout, `/native/path-config`, `/native/device`, bridge script builder, ready-notification diff | `shell-request`, `bridge-script`, `ready-notifications` (diff old/new state → `[{:sid … :message …}]` for orders that just became `:ready`) |
 
 `price-cents` is an exercise in part 3 only; later lessons copy the reference implementation.
 
@@ -275,3 +275,27 @@ Internals to sprinkle (each where it informs a usage decision):
   whole view is safe. Verify in `patchElements.ts`.
 - Part 6: retry/reconnect behavior of a held-open GET (`retryInterval`, `retryMaxCount`, …
   defaults in `fetch.ts`), and what the server should send on reconnect (the whole view again).
+
+Exercise ids match `[\w-]+` (no `!` or `?`): the id `broadcast` marks `broadcast!`, the id
+`shell-request` marks `shell-request?`.
+
+## Found while building (authoritative; overrides anything above)
+
+- **Attribute order matters, and hiccup sorts attributes alphabetically.** Datastar applies an
+  element's `data-*` attributes in source order (the `el.dataset` loop in `engine.ts`), so on one
+  element `data-computed` would run before `data-signals`. Put `data-signals` on an ancestor
+  (e.g. `div#app`), never on the same element as attributes that read those signals.
+- **`data-indicator` only tracks fetches started from its own element** (`indicator.ts` compares
+  `elt !== el`). Put it on the element that does the `@get`/`@post`. Declare the indicator signal
+  (e.g. `_loading false`) up front if an ancestor's `data-class` reads it.
+- **Spaces around `-` in expressions.** `$foo-bar` is the signal `foo-bar` (genRx rewrite in
+  `engine.ts`), so `$qty-1` is a signal name. Write `$qty - 1`.
+- **Hiccup escapes `'` as `&apos;`** in attributes. Browsers decode it, but view-source shows it.
+- **The "golden order" claim above is wrong**: the golden files disagree with each other.
+  Datastar's `compare-sse.sh` ignores the order *between* different data-line kinds and keeps the
+  order *within* one kind. Our writer emits selector, mode, useViewTransition,
+  viewTransitionSelector, namespace, elements.
+- `drink-options-view` takes `[drink sold-out choice]`, where `choice` is `{:size … :milk …}`, so
+  the chosen options render as `selected` and the DOM stays consistent through the morph.
+- Lessons 01–04 route with `case` on `[method uri]`. Part 5 introduces reitit.
+- Lesson 03's `quote` signal is in cents. The browser estimate reads `_prices`, which is never sent.

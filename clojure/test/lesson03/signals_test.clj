@@ -1,0 +1,57 @@
+(ns lesson03.signals-test
+  (:require [cheshire.core :as json]
+            [clojure.string :as string]
+            [clojure.test :refer [deftest is testing]]
+            [lesson03.signals :as s])
+  (:import (java.io ByteArrayInputStream)))
+
+(defn- body-of [s] (ByteArrayInputStream. (.getBytes s "UTF-8")))
+
+(defn- patched-signals
+  "Pull the JSON out of the one patch-signals event in a response body."
+  [body]
+  (-> (re-find #"data: signals (.*)\n" body) second (json/parse-string true)))
+
+(deftest price-cents-test
+  (is (= 560 (s/price-cents {:drink :latte :size :medium :milk :oat})))
+  (is (= 400 (s/price-cents {:drink :espresso :size :double :milk nil})))
+  (is (= 450 (s/price-cents {:drink :latte :size :small :milk :whole})))
+  (is (= 610 (s/price-cents {:drink :chai :size :large :milk :almond}))))
+
+(deftest read-signals-test
+  (testing "GET: JSON in the datastar query parameter"
+    (is (= {:drink "latte" :qty 2}
+           (s/read-signals {:request-method :get
+                            :query-params   {"datastar" "{\"drink\":\"latte\",\"qty\":2}"}}))))
+  (testing "DELETE reads the query parameter too"
+    (is (= {:a 1} (s/read-signals {:request-method :delete :query-params {"datastar" "{\"a\":1}"}}))))
+  (testing "POST: JSON body"
+    (is (= {:drink "mocha" :user {:name "Ada"}}
+           (s/read-signals {:request-method :post
+                            :body           (body-of "{\"drink\":\"mocha\",\"user\":{\"name\":\"Ada\"}}")}))))
+  (testing "nothing sent"
+    (is (= {} (s/read-signals {:request-method :get :query-params {}})))
+    (is (= {} (s/read-signals {:request-method :post :body nil})))))
+
+(deftest quote-response-test
+  (testing "a valid draft gets price × qty and clears the error"
+    (let [{:keys [status headers body]} (s/quote-response {:drink "latte" :size "medium" :milk "oat" :qty 2})]
+      (is (= 200 status))
+      (is (= "text/event-stream" (get headers "Content-Type")))
+      (is (string/starts-with? body "event: datastar-patch-signals\n"))
+      (is (= {:quote 1120 :error ""} (patched-signals body)))))
+  (testing "an invalid draft gets an error and quote 0"
+    (is (= {:quote 0 :error "Espresso does not take that milk."}
+           (patched-signals (:body (s/quote-response {:drink "espresso" :size "double" :milk "oat" :qty 1}))))))
+  (testing "a milk-less drink with no milk is fine"
+    (is (= {:quote 350 :error ""}
+           (patched-signals (:body (s/quote-response {:drink "americano" :size "small" :milk "" :qty 1})))))))
+
+(deftest handler-test
+  (testing "GET /quote goes through wrap-params"
+    (let [{:keys [body]} (s/handler {:request-method :get :uri "/quote"
+                                     :query-string   "datastar=%7B%22drink%22%3A%22mocha%22%2C%22size%22%3A%22large%22%2C%22milk%22%3A%22whole%22%2C%22qty%22%3A1%7D"})]
+      (is (= {:quote 600 :error ""} (patched-signals body)))))
+  (testing "the page declares the signals before data-computed reads them"
+    (let [body (:body (s/handler {:request-method :get :uri "/"}))]
+      (is (< (string/index-of body "data-signals=") (string/index-of body "data-computed:estimate="))))))

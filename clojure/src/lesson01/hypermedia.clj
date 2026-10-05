@@ -1,0 +1,132 @@
+(ns lesson01.hypermedia
+  "Part 1: HTML over the wire.
+  A button runs @get('/hello'). The server answers with one SSE event that holds a
+  <div id=\"greeting\">. Datastar finds the element with the same id and morphs it.
+  The same thing also works as a plain text/html response."
+  (:require [clojure.string :as string]
+            [hiccup2.core :as h]
+            [org.httpkit.server :as hk])
+  (:import (java.net URI)
+           (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers)))
+
+(def datastar-cdn
+  "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js")
+
+;; ---------------------------------------------------------------- SSE, the smallest version
+
+(defn sse-event
+  "Format one SSE event: an event line, one data line per entry, then a blank line."
+  [event-type data-lines]
+  ;; EXERCISE(sse-event): Return the text of one SSE event: "event: <type>", then
+  ;; "data: <line>" for each data line, each line ended by a newline, and one empty line at the end.
+  (str "event: " event-type "\n"
+       (string/join (map #(str "data: " % "\n") data-lines))
+       "\n")
+  ;; END EXERCISE
+  )
+
+;; ---------------------------------------------------------------- views
+
+(defn greeting-html
+  "The element the server sends back. Its id tells Datastar where it goes."
+  [visits]
+  (str (h/html [:div#greeting [:strong "Hello from the server!"] (str " Visit number " visits ".")])))
+
+(defn page []
+  (str "<!DOCTYPE html>"
+       (h/html
+        [:html
+         [:head
+          [:meta {:charset "utf-8"}]
+          [:title "Part 1: HTML over the wire"]
+          [:script {:type "module" :src datastar-cdn}]]
+         [:body
+          [:h1 "HTML over the wire"]
+          [:div#greeting "Nobody has said hello yet."]
+          [:button {:data-on:click "@get('/hello')"} "Say hello (SSE)"]
+          " "
+          [:button {:data-on:click "@get('/hello-html')"} "Say hello (text/html)"]]])))
+
+;; ---------------------------------------------------------------- responses
+
+(defn hello-response
+  "A one-shot SSE Ring response that patches #greeting."
+  [visits]
+  ;; EXERCISE(hello-response): Return a Ring response map: status 200, Content-Type
+  ;; text/event-stream, Cache-Control no-cache, and a body that is one datastar-patch-elements
+  ;; event whose single data line is "elements " followed by the greeting HTML.
+  {:status  200
+   :headers {"Content-Type"  "text/event-stream"
+             "Cache-Control" "no-cache"}
+   :body    (sse-event "datastar-patch-elements" [(str "elements " (greeting-html visits))])}
+  ;; END EXERCISE
+  )
+
+(defn hello-html-response
+  "The same patch as a text/html response. Datastar morphs each top-level element by id."
+  [visits]
+  {:status  200
+   :headers {"Content-Type" "text/html"}
+   :body    (greeting-html visits)})
+
+;; ---------------------------------------------------------------- server
+
+(defonce visits (atom 0))
+
+(defn handler [{:keys [request-method uri]}]
+  (case [request-method uri]
+    [:get "/"]           {:status 200 :headers {"Content-Type" "text/html"} :body (page)}
+    [:get "/hello"]      (hello-response (swap! visits inc))
+    [:get "/hello-html"] (hello-html-response (swap! visits inc))
+    {:status 404 :headers {"Content-Type" "text/plain"} :body "not found"}))
+
+(defonce server (atom nil))
+
+(defn stop! []
+  (when-let [s @server]
+    (hk/server-stop! s)
+    (reset! server nil)))
+
+(defn start!
+  "Start the server. Port 0 lets the OS pick a free port. Return the port."
+  [port]
+  (stop!)
+  (->> (hk/run-server #'handler {:port port :legacy-return-value? false})
+       (reset! server)
+       hk/server-port))
+
+;; ---------------------------------------------------------------- demo
+
+(defn- http-get
+  "Send a GET like Datastar does. Return status, content type and body."
+  [url]
+  (let [resp (.send (HttpClient/newHttpClient)
+                    (-> (HttpRequest/newBuilder (URI. url))
+                        (.header "Datastar-Request" "true")
+                        (.header "Accept" "text/event-stream, text/html, application/json")
+                        .build)
+                    (HttpResponse$BodyHandlers/ofString))]
+    {:status       (.statusCode resp)
+     :content-type (-> resp .headers (.firstValue "content-type") (.orElse ""))
+     :body         (.body resp)}))
+
+(defn- show [title {:keys [status content-type body]}]
+  (println (str "\n── " title))
+  (println (str "HTTP " status "  Content-Type: " content-type))
+  (println (string/trimr body)))
+
+(defn -main [& _]
+  (reset! visits 0)
+  (let [port (start! 0)
+        url  (str "http://localhost:" port)]
+    (println "Part 1: HTML over the wire. Server on" url)
+    (println "The page has <div id=\"greeting\"> and a button with data-on:click=\"@get('/hello')\".")
+    (show "GET /hello  (what the button sends)" (http-get (str url "/hello")))
+    (println "\nThe browser reads this one event, finds the element whose id is \"greeting\",")
+    (println "and morphs the old div into the new one. No JavaScript of ours ran.")
+    (show "GET /hello-html  (the same patch as text/html)" (http-get (str url "/hello-html")))
+    (println "\nA text/html response becomes one patch-elements event on the client side.")
+    (println "SSE can carry many events and can stay open; text/html carries exactly one patch.")
+    (println (str "\nTo try it in a browser: (lesson01.hypermedia/start! 8080), then open http://localhost:8080/"))
+    (stop!)
+    (shutdown-agents)))
