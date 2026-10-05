@@ -1,0 +1,79 @@
+(ns lesson07.sse
+  "The SSE writer from part 2, copied so this lesson stands alone.
+  Pure functions return strings. Nothing here writes to a socket."
+  (:require [cheshire.core :as json]
+            [clojure.string :as string]))
+
+(defn send-event
+  "Format one SSE event: event line, optional id and retry, data lines, blank line."
+  [event-type data-lines {:keys [id retry]}]
+  (str "event: " event-type "\n"
+       (when id (str "id: " id "\n"))
+       (when (and retry (not= retry 1000)) (str "retry: " retry "\n"))
+       (apply str (map #(str "data: " % "\n") data-lines))
+       "\n"))
+
+(defn- prefixed-lines [prefix s]
+  (map #(str prefix " " %) (string/split-lines s)))
+
+(defn patch-elements
+  "A datastar-patch-elements event. Omit options that hold their defaults."
+  ([html] (patch-elements html {}))
+  ([html {:keys [selector mode use-view-transition namespace] :as opts}]
+   (send-event "datastar-patch-elements"
+               (concat (when selector [(str "selector " selector)])
+                       (when (and mode (not= mode "outer")) [(str "mode " mode)])
+                       (when use-view-transition ["useViewTransition true"])
+                       (when (and namespace (not= namespace "html")) [(str "namespace " namespace)])
+                       (when html (prefixed-lines "elements" html)))
+               opts)))
+
+(defn patch-signals
+  "A datastar-patch-signals event. `signals` is a map or a JSON string."
+  ([signals] (patch-signals signals {}))
+  ([signals {:keys [only-if-missing] :as opts}]
+   (send-event "datastar-patch-signals"
+               (concat (when only-if-missing ["onlyIfMissing true"])
+                       (prefixed-lines "signals" (cond-> signals
+                                                   (not (string? signals)) json/generate-string)))
+               opts)))
+
+(defn remove-elements
+  "A patch-elements event in remove mode."
+  ([selector] (remove-elements selector {}))
+  ([selector opts] (patch-elements nil (assoc opts :selector selector :mode "remove"))))
+
+(defn execute-script
+  "Run JavaScript in the browser: append a script tag to body.
+  With auto-remove (the default) the tag removes itself after it runs."
+  ([js] (execute-script js {}))
+  ([js {:keys [auto-remove attributes] :or {auto-remove true} :as opts}]
+   (patch-elements (str "<script"
+                        (apply str (map (fn [[k v]] (str " " (name k) "=\"" v "\"")) attributes))
+                        (when auto-remove " data-effect=\"el.remove()\"")
+                        ">" js "</script>")
+                   (assoc opts :selector "body" :mode "append"))))
+
+(def sse-headers
+  {"Content-Type"  "text/event-stream"
+   "Cache-Control" "no-cache"})
+
+(defn sse-response
+  "A one-shot Ring response. The client reads the events until EOF."
+  [& events]
+  {:status 200 :headers sse-headers :body (apply str events)})
+
+(defn html-response
+  "A plain text/html response. Datastar morphs each top-level element by id."
+  [html]
+  {:status 200 :headers {"Content-Type" "text/html; charset=utf-8"} :body html})
+
+(defn read-signals
+  "Signals from a Datastar request, keyword keys.
+  GET and DELETE carry them in the `datastar` query param; other methods in the JSON body."
+  [{:keys [request-method query-params body]}]
+  (some-> (if (#{:get :delete} request-method)
+            (get query-params "datastar")
+            (some-> body slurp))
+          not-empty
+          (json/parse-string true)))

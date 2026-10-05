@@ -1,0 +1,104 @@
+(ns lesson05.routes-test
+  (:require [cheshire.core :as json]
+            [clojure.string :as string]
+            [clojure.test :refer [deftest is testing]]
+            [lesson05.routes :as r]))
+
+(def latte {:drink :latte :size :medium :milk :oat :qty 1})
+
+(def with-cart (assoc-in r/initial-state [:carts "s1"] [latte]))
+
+(deftest handle-command-test
+  (testing "add-to-cart appends a valid line"
+    (is (= [latte] (get-in (r/handle-command r/initial-state {:type :add-to-cart :sid "s1" :line latte})
+                           [:carts "s1"]))))
+  (testing "add-to-cart ignores an invalid line"
+    (is (= r/initial-state
+           (r/handle-command r/initial-state {:type :add-to-cart :sid "s1" :line (assoc latte :size :single)})))
+    (let [out-of-oat (assoc r/initial-state :sold-out #{:oat})]
+      (is (= out-of-oat (r/handle-command out-of-oat {:type :add-to-cart :sid "s1" :line latte})))))
+  (testing "remove-from-cart drops the line at idx"
+    (is (= [latte] (get-in (r/handle-command (assoc-in with-cart [:carts "s1"] [latte (assoc latte :qty 2)])
+                                             {:type :remove-from-cart :sid "s1" :idx 1})
+                           [:carts "s1"]))))
+  (testing "place-order turns the cart into a placed order"
+    (let [s (r/handle-command with-cart {:type :place-order :sid "s1" :customer " Ada "})]
+      (is (= {:id 1 :sid "s1" :customer "Ada" :status :placed :lines [latte]} (get-in s [:orders 1])))
+      (is (= 2 (:next-id s)))
+      (is (empty? (get-in s [:carts "s1"])))))
+  (testing "place-order needs a name and a non-empty cart"
+    (is (= with-cart (r/handle-command with-cart {:type :place-order :sid "s1" :customer "  "})))
+    (is (= r/initial-state (r/handle-command r/initial-state {:type :place-order :sid "s1" :customer "Ada"}))))
+  (testing "advance walks placed → making → ready → gone"
+    (let [s (r/handle-command with-cart {:type :place-order :sid "s1" :customer "Ada"})
+          step #(r/handle-command % {:type :advance :id 1})]
+      (is (= :making (get-in (step s) [:orders 1 :status])))
+      (is (= :ready (get-in (step (step s)) [:orders 1 :status])))
+      (is (nil? (get-in (step (step (step s))) [:orders 1])))
+      (is (= r/initial-state (r/handle-command r/initial-state {:type :advance :id 99})))))
+  (testing "toggle-stock flips a milk in and out of :sold-out"
+    (let [s (r/handle-command r/initial-state {:type :toggle-stock :milk :oat})]
+      (is (= #{:oat} (:sold-out s)))
+      (is (= #{} (:sold-out (r/handle-command s {:type :toggle-stock :milk :oat})))))))
+
+(defn- elements-ids [{:keys [body]}]
+  (->> (re-seq #"data: elements <\w+ id=\"([^\"]+)\"" body) (map second) set))
+
+(deftest command-response-test
+  (let [placed (r/handle-command with-cart {:type :place-order :sid "s1" :customer "Ada"})]
+    (testing "every answer is a one-shot SSE response"
+      (is (= "text/event-stream" (get-in (r/command-response with-cart {:type :add-to-cart :sid "s1"})
+                                         [:headers "Content-Type"]))))
+    (testing "cart commands patch #cart only"
+      (is (= #{"cart"} (elements-ids (r/command-response with-cart {:type :add-to-cart :sid "s1"}))))
+      (is (= #{"cart"} (elements-ids (r/command-response with-cart {:type :remove-from-cart :sid "s1"})))))
+    (testing "place-order patches #cart and #my-orders and clears $customer"
+      (let [resp (r/command-response placed {:type :place-order :sid "s1"})]
+        (is (= #{"cart" "my-orders"} (elements-ids resp)))
+        (is (string/includes? (:body resp) "data: signals {\"customer\":\"\"}"))
+        (is (string/includes? (:body resp) "#1 for Ada: placed"))))
+    (testing "board commands patch the board region they touched"
+      (is (= #{"board-orders"} (elements-ids (r/command-response placed {:type :advance :id 1}))))
+      (is (= #{"stock"} (elements-ids (r/command-response placed {:type :toggle-stock :milk :oat})))))))
+
+(deftest wrap-datastar-request-test
+  (let [h (r/wrap-datastar-request (constantly {:status 204}))]
+    (is (= 204 (:status (h {:headers {"datastar-request" "true"}}))))
+    (is (= 403 (:status (h {:headers {}}))))
+    (is (= 403 (:status (h {:headers {"datastar-request" "false"}}))))))
+
+(defn- call [handler method uri & {:keys [signals sid headers]}]
+  (handler (cond-> {:request-method method :uri uri :headers (merge {"datastar-request" "true"} headers)}
+             sid (assoc-in [:headers "cookie"] (str "sid=" sid))
+             (and signals (= :get method))
+             (assoc :query-string (str "datastar=" (java.net.URLEncoder/encode (json/generate-string signals) "UTF-8")))
+             (and signals (not= :get method))
+             (assoc :body (java.io.ByteArrayInputStream. (.getBytes (json/generate-string signals) "UTF-8"))))))
+
+(deftest routes-test
+  (let [!state (atom r/initial-state)
+        app (r/app !state)]
+    (testing "a page sets the sid cookie"
+      (let [resp (call app :get "/")]
+        (is (= 200 (:status resp)))
+        (is (string/includes? (:body resp) "datastar@v1.0.4"))
+        (is (some #(string/starts-with? % "sid=") (get-in resp [:headers "Set-Cookie"])))))
+    (testing "the drop-down query fixes signals that no longer fit"
+      (let [{:keys [body]} (call app :get "/drink-options" :signals {:drink "espresso" :size "small" :milk "oat"})]
+        (is (string/includes? body "<option value=\"double\">"))
+        (is (string/includes? body "data: signals {\"size\":\"single\",\"milk\":\"\"}"))))
+    (testing "a command without Datastar-Request is refused"
+      (is (= 403 (:status (call app :post "/stock/oat/toggle" :headers {"datastar-request" nil}))))
+      (is (= #{} (:sold-out @!state))))
+    (testing "a full customer flow through the routes"
+      (call app :post "/cart/items" :sid "s1" :signals {:drink "latte" :size "medium" :milk "oat" :qty "2"})
+      (is (= [(assoc latte :qty 2)] (get-in @!state [:carts "s1"])))
+      (is (string/includes? (:body (call app :post "/cart/items" :sid "s1"
+                                          :signals {:drink "latte" :size "single" :milk "oat" :qty 1}))
+                            "Pick a size"))
+      (call app :post "/orders" :sid "s1" :signals {:customer "Ada"})
+      (is (= :placed (get-in @!state [:orders 1 :status])))
+      (call app :post "/orders/1/advance")
+      (is (= :making (get-in @!state [:orders 1 :status])))
+      (call app :post "/stock/oat/toggle")
+      (is (= #{:oat} (:sold-out @!state))))))
