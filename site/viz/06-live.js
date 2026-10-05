@@ -85,6 +85,14 @@
   });
   v.controls.append(seg(COMMANDS.map((c) => c.label), 0, (i) => { ci = i; s.setFrames(fanFrames(i)); }));
 
+  // ---------- predict: selected after the option list changes ----------
+  predict("#predict-selected", {
+    prompt: "Suppose the server rendered <b>no</b> <code>selected</code> attributes. Ada has Latte, <b>Medium</b> (Latte sizes: Small, Medium, Large). She switches the drink to Chai Latte (sizes: Medium, Large). Medium is still valid, so no signal patch is sent; her stream re-renders <code>#drink-options</code>. What does the size drop-down show?",
+    choices: ["Medium", "Large", "Small", "Nothing selected"],
+    answer: 1,
+    explain: "The options have no ids, so the morph pairs them by position. Position 2 (Medium, selected) is rewritten into Large and keeps its selected property; position 1 becomes Medium, unselected. <code>$size</code> is still <code>medium</code> and never changed, so <code>data-bind</code> doesn't re-sync. Rendering <code>selected</code> from the stored draft fixes it.",
+  });
+
   // ---------- predict: focus ----------
   const pf = predict("#predict-focus", {
     prompt: "Ada has typed <code>Ad</code> into <code>&lt;input id=\"customer\" data-bind:customer&gt;</code> and the cursor is in the box. Sam advances an order and Ada's stream delivers her whole <code>#app</code> (default mode, outer). What happens to the box?",

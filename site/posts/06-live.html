@@ -149,22 +149,44 @@ for each subscriber s
     makes no new ones (it rebuilds them only on reconnect).</p>
 
   <p>The rule this teaches: <b>state that shapes server-rendered HTML must live on the server.</b>
-    So in lessons 06–07 and the capstone, changing the drink becomes a command. The select runs
-    <code>@post('/draft')</code>, and <code>:choose-draft</code> stores
-    <code>:drafts {sid {:drink :size :milk}}</code> in the atom. The command answers 200 with a
-    patch-signals of whichever of <code>size</code>/<code>milk</code> became invalid for the new
-    drink, or 204 if neither did. The new option lists arrive the usual way, in the whole-view
+    So in lessons 06–07 and the capstone, the draft becomes a command. All three selects
+    (<code>#drink</code>, <code>#size</code>, <code>#milk</code>) run <code>@post('/draft')</code> on
+    change. <code>:choose-draft</code> fits the draft to the drink (an invalid size or milk becomes the
+    drink's first valid one) and stores <code>:drafts {sid {:drink :size :milk}}</code>. The command
+    answers 200 with a patch-signals of whichever of <code>size</code>/<code>milk</code> the fitting
+    changed, or 204 if neither changed. The new option lists arrive the usual way, in the whole-view
     re-render that the <code>swap!</code> triggers. Part 4's <code>GET /drink-options</code> stays
     what it was there: a pure query, for pages without a live stream.</p>
 
-  <p>One more detail makes this safe to re-render. In lessons 06–07, <code>drink-options-view</code>
-    takes <code>[drink sold-out]</code> and renders no <code>selected</code> attribute; which option
-    is chosen is the bound signal's business. That matters because of how the morph treats options. In
-    <code>patchElements.ts</code>, <code>morphNode</code> sets an option's <code>selected</code>
-    property only when the <em>presence</em> of the <code>selected</code> attribute differs between the
-    old and new option. With no <code>selected</code> attribute on either side, a re-render never
-    touches the selection that <code>data-bind:size</code> made, so Ada's medium stays medium while
-    Sam's changes stream in.</p>
+  <p>Why do the size and milk selects post too, when only the drink changes the option lists? Because
+    the server must also render which option is <em>chosen</em>. Predict this one.</p>
+
+  <div id="predict-selected"></div>
+
+  <p>Here is the mechanism, in <code>patchElements.ts</code>. The options have no ids, so
+    <code>findBestMatch</code> pairs them by soft match (same tag, no id), which means in order:
+    old option 1 becomes new option 1, and so on. <code>morphNode</code> then copies the new
+    <code>value</code> attribute and text onto each old option. For options it sets the
+    <code>selected</code> <em>property</em> only when the <em>presence</em> of the
+    <code>selected</code> attribute differs between old and new. Latte's list was small, medium, large
+    with medium chosen at position 2. Chai's list is medium, large. Position 1 becomes "Medium",
+    position 2 becomes "Large" and keeps its selected property, and position 3 is removed. The select
+    shows Large. <code>$size</code> is still <code>medium</code>, which is valid for chai, so the
+    command patches no signal, and <code>data-bind</code> has no change to react to. The screen and the
+    signal now disagree.</p>
+
+  <p>The general rule: <b>in a whole-view render, render the true current value of every form control
+    you re-render.</b> The morph keeps the browser's state only where old and new markup agree; where
+    the list itself changes, positions get new meanings. So <code>drink-options-view</code> takes
+    <code>[drink sold-out {:keys [size milk]}]</code>, the same shape as in part 4, and puts
+    <code>selected</code> on the stored choice. With chai rendered as medium <em>selected</em>, large
+    not, both options' attribute presence changes and the morph sets both properties. And because the
+    stored choice is what gets rendered, it must be real: that's why <code>#size</code> and
+    <code>#milk</code> also <code>@post('/draft')</code>. Otherwise the next re-render would render the
+    old size as selected and undo what Ada picked. Text inputs are the exception that proves the rule:
+    the morph leaves an input's <code>.value</code> alone while its <code>value</code> attribute is
+    unchanged, so <code>#customer</code>, rendered with no <code>value</code>, keeps what Ada types
+    (more on that below).</p>
 
   <h2>"Sending the whole view on every change is too much"</h2>
 
@@ -238,8 +260,13 @@ function morphNode(old, new)
     so the comparison is <code>null</code> vs <code>null</code>, nothing is set, and "Ad" stays in the
     box with the cursor after the d. If you render <code>value="…"</code> from server state, a change
     to that value will overwrite what the user is typing. Datastar also gives you
-    <code>data-preserve-attr</code> to leave named attributes alone and <code>data-ignore-morph</code>
-    to leave an element untouched (it applies when both the old and the new element carry it).</p>
+    <code>data-preserve-attr</code> to leave named attributes alone, and <code>data-ignore-morph</code>.
+    In <code>patchElements.ts</code>, when both the old element and the new one carry
+    <code>data-ignore-morph</code>, <code>morphNode</code> returns the old element as it is: no
+    attributes copied, no children walked. Lessons 06–07 and the capstone put it on elements whose
+    content the client writes and the server renders empty, such as
+    <code>[:p.error {:data-text "$_error" :data-ignore-morph ""}]</code> (and the capstone's
+    computed price), so the morph leaves what <code>data-text</code> wrote alone.</p>
 
   <p><b>Ids are how the morph keeps identity across moves.</b> A matched element with a persistent id
     can be moved to its new position instead of being rebuilt. When Sam advances order #1, its
