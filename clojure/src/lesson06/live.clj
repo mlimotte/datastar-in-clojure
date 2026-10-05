@@ -62,9 +62,19 @@
       (sold-out milk)                              (str (label milk) " milk is sold out.")
       (not (pos-int? qty))                         "Quantity must be at least 1.")))
 
+(defn fit-draft
+  "The draft with size and milk replaced by the drink's first valid choice when they don't fit it.
+  A sold-out milk doesn't fit."
+  [{:keys [sold-out]} {:keys [drink size milk]}]
+  (let [{:keys [id sizes milks]} (or (drinks drink) (drinks :latte))
+        valid-milks (remove sold-out milks)]
+    {:drink id
+     :size  (if (some #{size} sizes) size (first sizes))
+     :milk  (if (some #{milk} valid-milks) milk (first valid-milks))}))
+
 (defn handle-command
   "Apply one command to the state. Pure: returns the new state."
-  [state {:keys [type sid line idx customer id milk drink]}]
+  [state {:keys [type sid line idx customer id milk draft]}]
   (case type
     :add-to-cart      (cond-> state
                         (nil? (line-error state line)) (update-in [:carts sid] (fnil conj []) line))
@@ -85,9 +95,9 @@
                           (assoc-in state [:orders id :status] (next-status status)))
                         state)
     :toggle-stock     (update state :sold-out #(if (% milk) (disj % milk) (conj % milk)))
-    ;; New in part 6: the drink a browser is configuring is view state the server must know,
-    ;; because the server renders the drop-downs inside the whole view.
-    :choose-drink     (assoc-in state [:drafts sid] drink)
+    ;; New in part 6: the draft a browser is configuring shapes its view, and the server renders
+    ;; the whole view, so the draft moves to the server and choosing a drink becomes a command.
+    :choose-draft     (assoc-in state [:drafts sid] (fit-draft state draft))
     state))
 
 ;; ---------------------------------------------------------------------------
@@ -123,9 +133,9 @@
     [:main#app
      [:h1 "Brew Board"]
      [:section#draft
-      [:select#drink {:data-bind:drink "" :data-on:change "@get('/drink-options')"}
+      [:select#drink {:data-bind:drink "" :data-on:change "@post('/draft')"}
        (for [{:keys [id name]} menu] [:option {:value (clojure.core/name id)} name])]
-      (drink-options-view (get-in state [:drafts sid] :latte) (:sold-out state))
+      (drink-options-view (get-in state [:drafts sid :drink] :latte) (:sold-out state))
       [:input {:type "number" :min "1" :data-bind:qty ""}]
       [:button#add-to-cart {:data-on:click "@post('/cart/items')"} "Add to cart"]
       [:p.error {:data-text "$_error"}]]
@@ -283,19 +293,14 @@
 
 (def draft-signals {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :_error ""})
 
-(defn drink-options
-  "Query: remember which drink this browser is configuring (the stream re-renders the drop-downs
-  from it) and fix $size/$milk if they no longer fit the drink."
+(defn choose-draft
+  "Command: store this browser's draft, fitted to the drink, so the stream re-renders the
+  drop-downs from it. Answer with the size/milk signals that no longer fit, or 204."
   [!state {:keys [sid] :as req}]
-  (let [{:keys [drink size milk]} (sse/read-signals req)
-        drink (or (drinks (signal->keyword drink)) (drinks :latte))
-        state (swap! !state handle-command {:type :choose-drink :sid sid :drink (:id drink)})
-        valid-milks (remove (:sold-out state) (:milks drink))
-        fix (cond-> {}
-              (not (some #{(signal->keyword size)} (:sizes drink)))
-              (assoc :size (name (first (:sizes drink))))
-              (not (some #{(signal->keyword milk)} valid-milks))
-              (assoc :milk (or (some-> (first valid-milks) name) "")))]
+  (let [draft (-> (sse/read-signals req) (select-keys [:drink :size :milk]) (update-vals signal->keyword))
+        fitted (get-in (swap! !state handle-command {:type :choose-draft :sid sid :draft draft}) [:drafts sid])
+        fix (into {} (for [k [:size :milk] :when (not= (k draft) (k fitted))]
+                       [k (or (some-> (k fitted) name) "")]))]
     (if (seq fix) (sse/sse-response (sse/patch-signals fix)) no-content)))
 
 (defn add-item [!state {:keys [sid] :as req}]
@@ -321,14 +326,14 @@
        ["/customer/stream" {:get (fn [{:keys [sid] :as req}]
                                    ((stream-handler hub !state {:kind :customer :sid sid}) req))}]
        ["/board/stream" {:get (stream-handler hub !state {:kind :board})}]
-       ["/drink-options" {:get (partial drink-options !state)}]
+       ["/draft" {:post {:handler (partial choose-draft !state) :middleware [wrap-datastar-request]}}]
        ["/cart/items" {:post {:handler (partial add-item !state) :middleware [wrap-datastar-request]}}]
        ["/cart/items/:idx" {:delete (command (fn [{:keys [sid path-params]}]
                                                (apply! {:type :remove-from-cart :sid sid
-                                                      :idx (parse-long (:idx path-params))})))}]
+                                                        :idx (parse-long (:idx path-params))})))}]
        ["/orders" {:post (command (fn [{:keys [sid] :as req}]
                                     (apply! {:type :place-order :sid sid
-                                           :customer (:customer (sse/read-signals req))})))}]
+                                             :customer (:customer (sse/read-signals req))})))}]
        ["/orders/:id/advance" {:post (command (fn [{:keys [path-params]}]
                                                 (apply! {:type :advance :id (parse-long (:id path-params))})))}]
        ["/stock/:milk/toggle" {:post (command (fn [{:keys [path-params]}]
@@ -422,6 +427,10 @@
     (let [ada-lines (open-stream ada base "/customer/stream")
           sam-lines (open-stream sam base "/board/stream")
           readers [(print-events! "ada" ada-lines) (print-events! "sam" sam-lines)]]
+      (command! ada base "POST" "/draft" {:drink "espresso" :size "medium" :milk "oat"}
+                "Ada picks Espresso. Choosing a drink is a command now: the server stores her draft and answers the signals that no longer fit; her stream re-renders the drop-downs.")
+      (command! ada base "POST" "/draft" {:drink "latte" :size "single" :milk ""}
+                "Back to Latte: single isn't a latte size and she needs a milk.")
       (command! ada base "POST" "/cart/items" {:drink "latte" :size "medium" :milk "oat" :qty 1 :customer ""}
                 "Ada adds a medium oat latte. The command answers only $_error; her stream sends her new view. Sam's view didn't change, so Sam gets nothing.")
       (command! ada base "POST" "/orders" {:customer "Ada"}

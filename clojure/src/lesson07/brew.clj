@@ -48,9 +48,19 @@
       (sold-out milk)                              (str (label milk) " milk is sold out.")
       (not (pos-int? qty))                         "Quantity must be at least 1.")))
 
+(defn fit-draft
+  "The draft with size and milk replaced by the drink's first valid choice when they don't fit it.
+  A sold-out milk doesn't fit."
+  [{:keys [sold-out]} {:keys [drink size milk]}]
+  (let [{:keys [id sizes milks]} (or (drinks drink) (drinks :latte))
+        valid-milks (remove sold-out milks)]
+    {:drink id
+     :size  (if (some #{size} sizes) size (first sizes))
+     :milk  (if (some #{milk} valid-milks) milk (first valid-milks))}))
+
 (defn handle-command
   "Apply one command to the state. Pure: returns the new state."
-  [state {:keys [type sid line idx customer id milk drink token]}]
+  [state {:keys [type sid line idx customer id milk draft token]}]
   (case type
     :add-to-cart      (cond-> state
                         (nil? (line-error state line)) (update-in [:carts sid] (fnil conj []) line))
@@ -71,7 +81,7 @@
                           (assoc-in state [:orders id :status] (next-status status)))
                         state)
     :toggle-stock     (update state :sold-out #(if (% milk) (disj % milk) (conj % milk)))
-    :choose-drink     (assoc-in state [:drafts sid] drink)
+    :choose-draft     (assoc-in state [:drafts sid] (fit-draft state draft))
     ;; New in part 7: the push token the native shell sent for this browser session.
     :register-device  (assoc-in state [:devices sid] token)
     state))

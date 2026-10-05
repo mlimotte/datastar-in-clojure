@@ -96,6 +96,11 @@
         (call app :post "/orders/2/advance")
         (call app :post "/orders/2/advance")
         (is (= [["tok-1" "Ada, your order #2 is ready."]] @pushed)))
+      (testing "choosing a drink is a POST /draft command"
+        (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:drink "chai" :size "small" :milk "oat"})]
+          (is (= 200 status))
+          (is (string/includes? body "{\"size\":\"medium\"}"))
+          (is (= {:drink :chai :size :medium :milk :oat} (get-in @!state [:drafts "ada"])))))
       (testing "an order screen is only for its own sid"
         (is (= 200 (:status (call app :get "/orders/1" :sid "ada"))))
         (is (= 404 (:status (call app :get "/orders/1" :sid "grace"))))))))

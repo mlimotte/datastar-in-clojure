@@ -299,3 +299,11 @@ Exercise ids match `[\w-]+` (no `!` or `?`): the id `broadcast` marks `broadcast
   the chosen options render as `selected` and the DOM stays consistent through the morph.
 - Lessons 01–04 route with `case` on `[method uri]`. Part 5 introduces reitit.
 - Lesson 03's `quote` signal is in cents. The browser estimate reads `_prices`, which is never sent.
+- **Parts 6–7 and the capstone: choosing a drink is a command.** `POST /draft` (`:choose-draft`)
+  stores `:drafts {sid {:drink :size :milk}}` and answers 200 with a patch-signals of the size/milk
+  keys that became invalid, or 204 if none did. The live stream's re-render carries the new options.
+  `GET /drink-options` exists only in parts 4–5, as a pure query. Reason: the whole-view render
+  needs the drink, and the stream (a GET opened once) carries stale signals, so state that shapes
+  server-rendered HTML moves to the server.
+- Live streams open with `@get('…/stream', {retry: 'always'})`. User-facing validation errors are
+  200 responses (Datastar patches nothing on a 4xx).

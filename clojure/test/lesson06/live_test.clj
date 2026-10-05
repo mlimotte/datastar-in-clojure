@@ -102,8 +102,24 @@
       (let [{:keys [body]} (call app :post "/cart/items" :sid "ada" :signals {:drink "latte" :size "medium" :milk "whole" :qty 1})]
         (is (= "event: datastar-patch-signals\ndata: signals {\"_error\":\"\"}\n\n" body))
         (is (string/includes? (last @sent) "1 × Medium Whole Latte"))))
-    (testing "choosing a drink re-renders that browser's drop-downs through the stream"
-      (let [{:keys [body]} (call app :get "/drink-options" :sid "ada" :signals {:drink "espresso" :size "medium" :milk "whole"})]
-        (is (string/includes? body "{\"size\":\"single\",\"milk\":\"\"}"))
-        (is (= :espresso (get-in @!state [:drafts "ada"])))
-        (is (string/includes? (last @sent) "<option value=\"double\">"))))))
+    (testing "choosing a drink is a command: the draft moves to the server"
+      (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:drink "espresso" :size "medium" :milk "whole"})]
+        (is (= 200 status))
+        (is (string/includes? body "data: signals {\"size\":\"single\",\"milk\":\"\"}"))
+        (is (= {:drink :espresso :size :single :milk nil} (get-in @!state [:drafts "ada"])))
+        (is (string/includes? (last @sent) "<option value=\"double\">"))))
+    (testing "a draft that still fits answers 204"
+      (is (= 204 (:status (call app :post "/draft" :sid "ada" :signals {:drink "latte" :size "large" :milk "almond"})))))
+    (testing "the draft command is guarded like the others"
+      (is (= 403 (:status (app {:request-method :post :uri "/draft" :headers {}})))))
+    (testing "there is no GET /drink-options in part 6"
+      (is (= 404 (:status (call app :get "/drink-options" :sid "ada")))))))
+
+(deftest fit-draft-test
+  (testing "a fitting draft is unchanged"
+    (is (= {:drink :latte :size :large :milk :oat} (l/fit-draft l/initial-state {:drink :latte :size :large :milk :oat}))))
+  (testing "size and milk fall back to the first valid choice"
+    (is (= {:drink :cappuccino :size :small :milk :whole}
+           (l/fit-draft l/initial-state {:drink :cappuccino :size :large :milk :almond}))))
+  (testing "a sold-out milk doesn't fit"
+    (is (= :almond (:milk (l/fit-draft {:sold-out #{:whole :oat}} {:drink :latte :size :small :milk :oat}))))))

@@ -105,9 +105,9 @@
      ;; In the shell the native title bar shows the title.
      (when-not shell? [:h1 "Brew Board"])
      [:section#draft
-      [:select#drink {:data-bind:drink "" :data-on:change "@get('/drink-options')"}
+      [:select#drink {:data-bind:drink "" :data-on:change "@post('/draft')"}
        (for [{:keys [id name]} brew/menu] [:option {:value (clojure.core/name id)} name])]
-      (drink-options-view (get-in state [:drafts sid] :latte) (:sold-out state))
+      (drink-options-view (get-in state [:drafts sid :drink] :latte) (:sold-out state))
       [:input {:type "number" :min "1" :data-bind:qty ""}]
       [:button#add-to-cart {:data-on:click "@post('/cart/items')"} "Add to cart"]
       [:p.error {:data-text "$_error"}]]
@@ -240,7 +240,7 @@
                      (push! token message)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Routes: part 6's routes, shell-aware, plus /orders/:id and /native/*.
+;; Routes: part 6's routes (POST /draft included), shell-aware, plus /orders/:id and /native/*.
 
 (defn wrap-datastar-request [handler]
   (fn [req]
@@ -266,16 +266,14 @@
 (def draft-signals
   {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :_error "" :pushToken ""})
 
-(defn drink-options [!state {:keys [sid] :as req}]
-  (let [{:keys [drink size milk]} (sse/read-signals req)
-        drink (or (brew/drinks (signal->keyword drink)) (brew/drinks :latte))
-        state (swap! !state brew/handle-command {:type :choose-drink :sid sid :drink (:id drink)})
-        valid-milks (remove (:sold-out state) (:milks drink))
-        fix (cond-> {}
-              (not (some #{(signal->keyword size)} (:sizes drink)))
-              (assoc :size (name (first (:sizes drink))))
-              (not (some #{(signal->keyword milk)} valid-milks))
-              (assoc :milk (or (some-> (first valid-milks) name) "")))]
+(defn choose-draft
+  "Command: store this browser's draft, fitted to the drink, so the stream re-renders the
+  drop-downs from it. Answer with the size/milk signals that no longer fit, or 204."
+  [!state {:keys [sid] :as req}]
+  (let [draft (-> (sse/read-signals req) (select-keys [:drink :size :milk]) (update-vals signal->keyword))
+        fitted (get-in (swap! !state brew/handle-command {:type :choose-draft :sid sid :draft draft}) [:drafts sid])
+        fix (into {} (for [k [:size :milk] :when (not= (k draft) (k fitted))]
+                       [k (or (some-> (k fitted) name) "")]))]
     (if (seq fix) (sse/sse-response (sse/patch-signals fix)) no-content)))
 
 (defn add-item [!state {:keys [sid] :as req}]
@@ -313,7 +311,7 @@
                                 (view-for @!state {:kind :board}))))}]
        ["/customer/stream" {:get (fn [req] ((stream-handler hub !state (customer req)) req))}]
        ["/board/stream" {:get (stream-handler hub !state {:kind :board})}]
-       ["/drink-options" {:get (partial drink-options !state)}]
+       ["/draft" {:post {:handler (partial choose-draft !state) :middleware [wrap-datastar-request]}}]
        ["/cart/items" {:post {:handler (partial add-item !state) :middleware [wrap-datastar-request]}}]
        ["/cart/items/:idx" {:delete (command (fn [{:keys [sid path-params]}]
                                                (apply! {:type :remove-from-cart :sid sid
