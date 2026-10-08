@@ -29,19 +29,29 @@
       (is (string/includes? s "data-bind:drink=\"\""))
       (is (not (re-find #"data-bind:\w+=\"data-bind" s))))))
 
+(deftest customer-page-test
+  (let [s (views/customer-page state/initial "a" false)]
+    (testing "the tab id is seeded on <body>, before #root's data-init opens the stream"
+      (is (re-find #"<body[^>]*data-signals:tabid__ifmissing=\"crypto.randomUUID\(\)\"" s))
+      (is (re-find #"<div[^>]*data-init=" s)))
+    (testing "no client-side pricing and no client-held error"
+      (is (not (string/includes? s "data-computed")))
+      (is (not (string/includes? s "_error")))
+      (is (not (string/includes? s "data-ignore-morph"))))))
+
 (deftest customer-view-test
   (let [s (-> state/initial
               (state/handle-command {:type :add-to-cart :sid "a" :line {:drink :latte :size :medium :milk :oat :qty 1}})
               (state/handle-command {:type :add-to-cart :sid "b" :line {:drink :mocha :size :small :milk :whole :qty 1}}))
-        a (html (views/customer-app s "a"))]
+        a (html (views/customer-app s "a" nil))]
     (is (string/includes? a "1 × Medium Latte (Oat)"))
     (is (not (string/includes? a "Mocha (Whole)")) "a customer sees only their own cart")
     (is (string/includes? a "$5.60"))))
 
 (deftest initial-signals-test
-  (is (= {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :pushToken "" :_error ""}
-         (views/initial-signals state/initial "a")))
-  (is (= "almond" (:milk (views/initial-signals (assoc state/initial :sold-out #{:whole :oat}) "a")))))
+  (is (= {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :pushToken ""}
+         (views/initial-signals state/initial)))
+  (is (= "almond" (:milk (views/initial-signals (assoc state/initial :sold-out #{:whole :oat}))))))
 
 (deftest shell-layout-test
   (is (string/includes? (views/board-page state/initial false) "Barista board"))

@@ -40,3 +40,20 @@
     (is (nil? (state/command! !s {:type :add-to-cart :sid "a" :line latte})))
     (is (= "No such order." (state/command! !s {:type :advance :id 99})))
     (is (= 1 (count (get-in @!s [:carts "a"]))))))
+
+(deftest tabs-test
+  (let [s (run state/initial
+               {:type :open-tab :sid "a" :tabid "t1" :stream 1 :draft {:drink :latte}}
+               {:type :choose-draft :tabid "t1" :draft {:drink :mocha}})]
+    (is (= {:sid "a" :stream 1 :draft {:drink :mocha}} (get-in s [:tabs "t1"])))
+    (testing "a close from an older stream of the same tab (a late close after a reconnect) is ignored"
+      (let [s (run s {:type :open-tab :sid "a" :tabid "t1" :stream 2 :draft {:drink :chai}})]
+        (is (some? (get-in (run s {:type :close-tab :tabid "t1" :stream 1}) [:tabs "t1"])))
+        (is (nil? (get-in (run s {:type :close-tab :tabid "t1" :stream 2}) [:tabs "t1"])))))))
+
+(deftest command!-errors-test
+  (let [!s (atom (run state/initial {:type :open-tab :sid "a" :tabid "t1" :stream 1 :draft {}}))]
+    (is (= "Your cart is empty." (state/command! !s {:type :place-order :sid "a" :tabid "t1" :customer "Ada"})))
+    (is (= "Your cart is empty." (get-in @!s [:tabs "t1" :error])))
+    (is (nil? (state/command! !s {:type :add-to-cart :sid "a" :tabid "t1" :line latte})))
+    (is (nil? (get-in @!s [:tabs "t1" :error])) "success clears the tab's error")))

@@ -32,10 +32,18 @@
       [:a {:href "/" :class (when (= active :customer) "on")} "Order"]
       [:a {:href "/board" :class (when (= active :board) "on")} "Barista board"]]]))
 
+(def tab-seed
+  "A per-tab id. A cookie names the browser, and every tab shares it, so per-tab state
+  (the draft, the error) is keyed by this instead. `ifmissing` keeps it across morphs;
+  a full reload makes a new one. crypto.randomUUID needs https or localhost."
+  "crypto.randomUUID()")
+
 (defn page
-  "A full HTML page. `root-attrs` go on #root, outside #app, so the morph of #app
-  never re-runs them (data-signals, data-init that opens the stream)."
-  [{:keys [title shell? active root-attrs]} app]
+  "A full HTML page. `signals` and the tab id are seeded on <body>; `root-attrs` (data-init
+  that opens the stream, listeners) go on #root. Both sit outside #app, so the morph of
+  #app never re-runs them. Datastar applies <body> before its children, so the signals
+  exist before data-init opens the stream."
+  [{:keys [title shell? active signals tab? root-attrs]} app]
   (str "<!DOCTYPE html>"
        (h/html
         [:html {:lang "en"}
@@ -47,7 +55,9 @@
           [:link {:rel "icon" :href "data:,"}]
           [:script (raw-string bridge-js)]
           [:script {:type "module" :src datastar-src}]]
-         [:body {:class (when shell? "shell")}
+         [:body (cond-> {:class (when shell? "shell")}
+                  signals (assoc :data-signals (json/generate-string signals))
+                  tab?    (assoc :data-signals:tabid__ifmissing tab-seed))
           [:div#root root-attrs
            (header shell? active)
            app]]])))
@@ -84,15 +94,6 @@
                    milks))]
        [:label "Milk" [:p.muted (str name " has no milk")]])]))
 
-(defn price-expression
-  "A data-computed expression for the draft price, generated from the menu so the
-  client's estimate and the server's price-cents use the same numbers."
-  []
-  (let [js-map (fn [m] (json/generate-string (update-keys m name)))]
-    (str "(" (js-map (update-vals menu/by-id :base)) "[$drink] || 0)"
-         " + (" (js-map menu/size-delta) "[$size] || 0)"
-         " + (" (js-map menu/milk-delta) "[$milk] || 0)")))
-
 (defn- draft-view [{:keys [drink] :as draft} sold-out]
   [:section#draft.card
    [:h2 "Order a drink"]
@@ -104,15 +105,13 @@
    (drink-options-view drink sold-out draft)
    [:div.row
     [:label "Qty" [:input#qty {:type "number" :min "1" :max "9" :data-bind:qty ""}]]
-    [:div.price {:data-computed:price (price-expression)}
-     "Each " [:b {:data-ignore-morph "" :data-text "'$' + ($price / 100).toFixed(2)"}]]]
-   [:button.primary {:data-on:click "$_error = ''; @post('/cart/items')"
+    ;; The server knows the draft (every change posts it), so it renders the price.
+    ;; The browser never computes a price.
+    [:div.price "Each " [:b (menu/money (menu/price-cents draft))]]]
+   [:button.primary {:data-on:click "@post('/cart/items')"
                      :data-indicator:_adding ""
                      :data-attr:disabled "$_adding"}
-    "Add to cart"]
-   ;; data-show and data-text write to this element; data-ignore-morph stops a re-render
-   ;; from wiping what they wrote (morph keeps old nodes that carry it in both trees).
-   [:p.error {:data-ignore-morph "" :data-show "$_error != ''" :data-text "$_error"}]])
+    "Add to cart"]])
 
 (defn- cart-view [lines]
   [:section#cart.card
@@ -131,7 +130,7 @@
       [:p.total "Total " [:b (menu/money (reduce + (map menu/line-total lines)))]]
       [:div.row
        [:label "Name" [:input#customer {:data-bind:customer "" :placeholder "for the cup"}]]
-       [:button.primary {:data-on:click "$_error = ''; @post('/orders')"} "Place order"]]))])
+       [:button.primary {:data-on:click "@post('/orders')"} "Place order"]]))])
 
 (defn- my-orders-view [orders]
   [:section#my-orders.card
@@ -150,41 +149,49 @@
 (defn customer-orders [state sid]
   (filter #(= sid (:sid %)) (vals (:orders state))))
 
+(defn default-draft [state]
+  {:drink :latte :size :small :milk (menu/first-valid menu/all-milks (:sold-out state))})
+
 (defn draft
-  "The draft the server last saw for `sid`; a new session starts on the first valid latte."
-  [state sid]
-  (or (get-in state [:drafts sid])
-      {:drink :latte :size :small :milk (menu/first-valid menu/all-milks (:sold-out state))}))
+  "The draft the server last saw from tab `tabid`; a new tab starts on the first valid latte."
+  [state tabid]
+  (or (get-in state [:tabs tabid :draft]) (default-draft state)))
 
 (defn customer-app
-  "The whole customer view for one session."
-  [state sid]
+  "The whole customer view for one tab. The cart and orders belong to the browser (`sid`);
+  the draft and the error belong to the tab (`tabid`)."
+  [state sid tabid]
   [:main#app.customer
-   (draft-view (draft state sid) (:sold-out state))
+   [:p#error.error {:role "alert"} (get-in state [:tabs tabid :error])]
+   (draft-view (draft state tabid) (:sold-out state))
    (cart-view (get-in state [:carts sid] []))
    (my-orders-view (customer-orders state sid))
    [:p.muted [:a {:href "/settings"} "Settings"]]])
 
-(defn initial-signals [state sid]
-  (let [{:keys [drink size milk]} (draft state sid)]
+(defn initial-signals
+  "Form-draft signals for a fresh page. The tab id is seeded separately (`tab-seed`)."
+  [state]
+  (let [{:keys [drink size milk]} (default-draft state)]
     {:drink     (name drink)
      :size      (name size)
      :milk      (or (some-> milk name) "")
      :qty       1
      :customer  ""
-     :pushToken ""
-     :_error    ""}))
+     :pushToken ""}))
 
 (def native-listener
   "Native → web: the shell dispatches a `brew:native` CustomEvent on window."
   "if (evt.detail.type === 'push-token') { $pushToken = evt.detail.token; @post('/native/device') }")
 
-(defn customer-page [state sid shell?]
+(defn customer-page
+  "A fresh page: the tab id does not exist yet (the browser makes it), so #app renders the
+  default draft. The stream's first event replaces it with this tab's view."
+  [state sid shell?]
   (page {:title "Brew Board" :shell? shell? :active :customer
-         :root-attrs {:data-signals (json/generate-string (initial-signals state sid))
-                      :data-init "@get('/customer/stream', {retry: 'always'})"
+         :signals (initial-signals state) :tab? true
+         :root-attrs {:data-init "@get('/customer/stream', {retry: 'always'})"
                       :data-on:brew:native__window native-listener}}
-        (customer-app state sid)))
+        (customer-app state sid nil)))
 
 ;; ---------------------------------------------------------------- order detail / settings (shell screens)
 

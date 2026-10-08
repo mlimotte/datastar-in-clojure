@@ -16,7 +16,7 @@
                 "data: selector div\ndata: mode append\ndata: useViewTransition true\n"
                 "data: elements <div>Merge</div>\n\n")
            (sse/patch-elements "<div>Merge</div>" {:id "event1" :retry 2000 :selector "div"
-                                                    :mode :append :use-view-transition true})))
+                                                   :mode :append :use-view-transition true})))
     (is (not (re-find #"mode" (sse/patch-elements "<p id=\"a\"></p>" {:mode :outer})))))
   (testing "each line of HTML gets its own elements line"
     (is (= "event: datastar-patch-elements\ndata: elements <ul id=\"l\">\ndata: elements </ul>\n\n"
@@ -38,4 +38,8 @@
 (deftest read-signals-test
   (is (= {:drink "latte"} (sse/read-signals {:request-method :get :query-params {"datastar" "{\"drink\":\"latte\"}"}})))
   (is (= {:customer "Ada"} (sse/read-signals {:request-method :post :body (java.io.ByteArrayInputStream. (.getBytes "{\"customer\":\"Ada\"}"))})))
-  (is (= {} (sse/read-signals {:request-method :get :query-params {}}))))
+  (is (= {} (sse/read-signals {:request-method :get :query-params {}})))
+  (testing "malformed or non-object input gives {}, never an exception"
+    (is (= {} (sse/read-signals {:request-method :get :query-params {"datastar" "{oops"}})))
+    (is (= {} (sse/read-signals {:request-method :delete :query-params {"datastar" "42"}})))
+    (is (= {} (sse/read-signals {:request-method :post :body "[\"a\"]"})))))

@@ -6,7 +6,7 @@
 (def initial
   {:sold-out #{}
    :carts    {}
-   :drafts   {}     ;; sid → {:drink :size :milk} last seen by the server, so re-renders keep the drop-downs consistent
+   :tabs     {}     ;; tabid → {:sid :stream :draft {:drink :size :milk} :error "…"}: per-tab, not per-browser
    :orders   (sorted-map)
    :devices  {}     ;; sid → push token, from the native shell
    :next-id  1})
@@ -47,7 +47,7 @@
 
 (defn handle-command
   "Apply a command to the state. Invalid commands leave the state unchanged."
-  [state {:keys [type sid line idx customer id milk draft token] :as cmd}]
+  [state {:keys [type sid tabid stream line idx customer id milk draft token] :as cmd}]
   (if (validate state cmd)
     state
     (case type
@@ -58,12 +58,28 @@
       :place-order      (place-order state sid customer)
       :advance          (advance state id)
       :toggle-stock     (update state :sold-out toggle milk)
-      :choose-draft     (assoc-in state [:drafts sid] draft)
+      :open-tab         (assoc-in state [:tabs tabid] {:sid sid :stream stream :draft draft})
+      :close-tab        (cond-> state
+                          (= stream (get-in state [:tabs tabid :stream])) (update :tabs dissoc tabid))
+      :choose-draft     (cond-> state
+                          (get-in state [:tabs tabid]) (assoc-in [:tabs tabid :draft] draft))
       :register-device  (assoc-in state [:devices sid] token)
       state)))
 
+(defn record-error
+  "Store `error` (or clear it, when nil) on the tab that sent the command. The tab's view
+  renders it. A tab with no open stream has nowhere to show it, so it is dropped."
+  [state tabid error]
+  (cond-> state
+    (get-in state [:tabs tabid]) (assoc-in [:tabs tabid :error] error)))
+
 (defn command!
-  "Validate then apply `cmd` to the atom. Return the error message, or nil on success."
-  [!state cmd]
-  (or (validate @!state cmd)
-      (do (swap! !state handle-command cmd) nil)))
+  "Validate then apply `cmd` to the atom in one swap. A command from a tab also sets that
+  tab's error, or clears it on success. Return the error message, or nil on success."
+  [!state {:keys [tabid] :as cmd}]
+  (let [!error (volatile! nil)]
+    (swap! !state (fn [s]
+                    (let [error (vreset! !error (validate s cmd))]
+                      (cond-> (if error s (handle-command s cmd))
+                        tabid (record-error tabid error)))))
+    @!error))

@@ -68,9 +68,12 @@
 
 (defn read-signals
   "Signals as a keyword map. GET/DELETE carry them in query param `datastar`;
-  other methods in the JSON body."
+  other methods in the JSON body. Input that is not a JSON object gives {}, so a
+  crafted request cannot cause a 500."
   [{:keys [request-method query-params body]}]
   (let [raw (if (#{:get :delete} request-method)
               (get query-params "datastar")
-              (cond-> body (not (string? body)) (some-> slurp)))]
-    (if (string/blank? raw) {} (json/parse-string raw true))))
+              (cond-> body (not (string? body)) (some-> slurp)))
+        v   (when-not (string/blank? raw)
+              (try (json/parse-string raw true) (catch Exception _ nil)))]
+    (if (map? v) v {})))

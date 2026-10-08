@@ -1,7 +1,7 @@
 (ns brewboard.demo
   "A scripted Brew Board session over real HTTP, for CI and for reading.
-  Opens a customer stream (Ada) and a board stream (Sam), runs commands, and
-  prints what each stream receives."
+  Ada has two tabs open (one browser, so one sid cookie, but two tab ids); Sam has the
+  board. Runs commands and prints what each stream receives."
   (:require [brewboard.main :as main]
             [cheshire.core :as json]
             [clojure.java.io :as io]
@@ -55,10 +55,11 @@
       :else      (str event "  " (string/join " | " data)))))
 
 (defn- open-stream!
-  "Read an SSE stream on a background thread; print and keep each event."
-  [port path label sid]
+  "Read an SSE stream on a background thread; print and keep each event. `signals` go in
+  the `datastar` query param, as the browser sends them when data-init opens the stream."
+  [port path label sid signals]
   (let [!events (atom [])
-        resp    (.send client (request port "GET" path {:sid sid :datastar? true})
+        resp    (.send client (request port "GET" path {:sid sid :datastar? true :signals signals})
                        (HttpResponse$BodyHandlers/ofInputStream))]
     (future
       (try
@@ -82,52 +83,69 @@
       (Thread/sleep 25)
       (recur (+ waited 25)))))
 
-(defn- step [title port method path opts & streams]
+(defn- step
+  "Send one request. Wait for one event on each of `streams`; report how many events each
+  of `quiet` streams got (it should be none)."
+  [title port method path opts & {:keys [streams quiet]}]
   (println)
   (println (str "▶ " title))
   (println (str "  " method " " path (when-let [s (:signals opts)] (str "  signals " (json/generate-string s)))))
   (let [before (mapv (comp count deref) streams)
+        quiet0 (into {} (for [[label s] quiet] [label (count @s)]))
         resp   (send! port method path opts)]
     (println (str "  ← " (.statusCode resp)
                   (when-let [b (not-empty (.body resp))]
                     (str "\n" (string/join "\n" (map #(str "    " %) (string/split-lines (string/trim b))))))))
     (doseq [[s n] (map vector streams before)] (await-events s (inc n)))
-    (Thread/sleep 100)))
+    (Thread/sleep 150)
+    (doseq [[label s] quiet]
+      (println (str "  [" label "] " (- (count @s) (quiet0 label)) " events: its view did not change")))))
+
+(def ^:private latte-draft {:drink "latte" :size "small" :milk "whole" :qty 1})
 
 (defn demo!
   "Run the narrated demo: start a server, make real requests, print what happens, stop."
   []
-  (let [port     (main/start! 0 (main/new-system))
-        ada      "sid-ada"
-        _        (println (str "Brew Board demo on port " port ". Ada is a customer; Sam runs the board."))
-        _        (println "\n▶ Ada opens the customer page; Sam opens the board. Each stream starts with the whole view.")
-        customer (open-stream! port "/customer/stream" "Ada" ada)
-        board    (open-stream! port "/board/stream" "Sam" nil)]
-    (await-events customer 1)
-    (await-events board 1)
-    (step (str "Ada picks Espresso in the drink drop-down (a command). The response fixes the size and milk"
-               " signals; her stream re-renders with espresso's options.")
-          port "POST" "/draft" {:sid ada :datastar? true :signals {:drink "espresso" :size "small" :milk "whole"}}
-          customer)
-    (step "Ada picks Latte again: latte options, and a valid size and milk."
-          port "POST" "/draft" {:sid ada :datastar? true :signals {:drink "latte" :size "single" :milk ""}}
-          customer)
-    (step "Ada adds a medium oat latte. The command returns 204; her stream carries the new cart."
-          port "POST" "/cart/items" {:sid ada :datastar? true :signals {:drink "latte" :size "medium" :milk "oat" :qty 1}}
-          customer)
+  (let [port (main/start! 0 (main/new-system))
+        ada  "sid-ada"
+        tab1 (assoc latte-draft :tabid "tab-1")
+        tab2 (assoc latte-draft :tabid "tab-2")
+        _    (println (str "Brew Board demo on port " port ". Ada is a customer with two tabs open; Sam runs the board."))
+        _    (println "\n▶ Each stream opens with the tab's signals (its tabid and draft) and starts with the whole view.")
+        t1   (open-stream! port "/customer/stream" "Ada tab 1" ada tab1)
+        _    (await-events t1 1)
+        t2   (open-stream! port "/customer/stream" "Ada tab 2" ada tab2)
+        _    (await-events t2 1)
+        sam  (open-stream! port "/board/stream" "Sam" nil nil)]
+    (await-events sam 1)
+    (step (str "In tab 1, Ada picks Espresso (a command). The response fixes the size and milk signals;"
+               " tab 1's stream re-renders with espresso's options and price.")
+          port "POST" "/draft" {:sid ada :datastar? true :signals (assoc tab1 :drink "espresso")}
+          :streams [t1] :quiet [["Ada tab 2" t2]])
+    (step "In tab 1, Ada picks Latte again: latte options, and a valid size and milk."
+          port "POST" "/draft" {:sid ada :datastar? true :signals (assoc tab1 :size "single" :milk "")}
+          :streams [t1])
+    (step "In tab 2, Ada adds a medium oat latte. The cart belongs to the browser, so both tabs re-render."
+          port "POST" "/cart/items" {:sid ada :datastar? true :signals (assoc tab2 :size "medium" :milk "oat")}
+          :streams [t1 t2])
     (step "A forged request without the Datastar-Request header is refused."
           port "POST" "/orders" {:sid ada :signals {:customer "Mallory"}})
-    (step "Ada places her order. Both streams re-render."
-          port "POST" "/orders" {:sid ada :datastar? true :signals {:customer "Ada"}}
-          customer board)
+    (step "Ada places her order from tab 1. Every stream re-renders."
+          port "POST" "/orders" {:sid ada :datastar? true :signals (assoc tab1 :customer "Ada")}
+          :streams [t1 t2 sam])
     (step "Sam starts making order #1."
-          port "POST" "/orders/1/advance" {:datastar? true} customer board)
-    (step "Sam marks it ready. Ada's stream also gets bridge scripts (haptic + notification; no-ops in a browser)."
-          port "POST" "/orders/1/advance" {:datastar? true} customer board)
-    (step "Sam marks oat milk sold out. Ada's drop-down shows it disabled, with no extra code."
-          port "POST" "/stock/oat/toggle" {:datastar? true} customer board)
-    (step "Ada tries to add another oat latte: the server refuses and patches the _error signal."
-          port "POST" "/cart/items" {:sid ada :datastar? true :signals {:drink "latte" :size "small" :milk "oat" :qty 1}})
+          port "POST" "/orders/1/advance" {:datastar? true} :streams [t1 sam])
+    (step "Sam marks it ready. Ada's streams also get bridge scripts (haptic + notification; no-ops in a browser)."
+          port "POST" "/orders/1/advance" {:datastar? true} :streams [t1 sam])
+    (step "Sam marks oat milk sold out. Ada's drop-downs show it disabled, with no extra code."
+          port "POST" "/stock/oat/toggle" {:datastar? true} :streams [t1 sam])
+    (step (str "In tab 1, Ada tries to add an oat latte. The command answers 204; the error is tab 1's"
+               " server state, so only tab 1's view shows it.")
+          port "POST" "/cart/items" {:sid ada :datastar? true :signals (assoc tab1 :milk "oat")}
+          :streams [t1] :quiet [["Ada tab 2" t2]])
+    (step "Tab 1's next command (picking a mocha) clears the error."
+          port "POST" "/draft" {:sid ada :datastar? true :signals (assoc tab1 :drink "mocha")}
+          :streams [t1])
     (println "\nDone. Run it for real: clojure -M -m brewboard.main")
     (main/stop!)))
 
