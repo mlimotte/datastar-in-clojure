@@ -16,6 +16,7 @@ lesson per part, an exercise track, recall cards, and excerpts from real-world s
 | 5 Shaping the backend | `clojure/src/lesson05/routes.clj` | `clojure -M -m lesson05.routes` |
 | 6 One stream, many viewers | `clojure/src/lesson06/live.clj` | `clojure -M -m lesson06.live` |
 | 7 Replacing the React Native app | `clojure/src/lesson07/native_shell.clj` | `clojure -M -m lesson07.native-shell` |
+| 8 Field guide (advanced, no exercises) | `clojure/src/lesson08/field_guide.clj` | `clojure -M -m lesson08.field-guide` |
 
 Run the demos from `clojure/`. Each lesson also has `(start! 8080)` / `(stop!)` for the REPL.
 
