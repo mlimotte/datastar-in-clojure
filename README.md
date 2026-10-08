@@ -19,6 +19,10 @@ lesson per part, an exercise track, recall cards, and excerpts from real-world s
 
 Run the demos from `clojure/`. Each lesson also has `(start! 8080)` / `(stop!)` for the REPL.
 
+**Exercises** live in `clojure/ex/exercises/lessonNN/`. REPL: `cd clojure && clj -A:ex-repl`, then
+`(require 'exercises.lesson01.hypermedia-test :reload-all)` and
+`(clojure.test/run-tests 'exercises.lesson01.hypermedia-test)`. Or from the project root: `lk test 01`.
+
 **Capstone:** `cd clojure && clojure -M -m brewboard.main`, then open
 http://localhost:8080/ (customer) and http://localhost:8080/board (barista) side by side.
 Reference native shells are in `native/` (see `native/README.md` for what was checked).
