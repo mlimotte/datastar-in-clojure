@@ -10,7 +10,7 @@
   // For each interaction: one entry per rung tried, in order. The last entry is where it stops.
   const CASES = [
     { name: "Size options for the chosen drink",
-      steps: [["stop", "The options depend on the menu and on stock, which only the server knows. Part 4's drop-down: <code>@post('/draft')</code>, the server renders the <code>&lt;option&gt;</code>s."]] },
+      steps: [["stop", "The options depend on the menu and on stock, which only the server knows. Part 4's drop-down asks <code>@get('/drink-options')</code> (part 6 turns it into <code>@post('/draft')</code>), and the server renders the <code>&lt;option&gt;</code>s."]] },
     { name: "Receipt panel opens and closes",
       steps: [["skip", "Nothing the server needs to know. A request per toggle would buy only \"stays open after a reload\"."],
               ["stop", "<code>&lt;details&gt;&lt;summary&gt;Receipt&lt;/summary&gt;…&lt;/details&gt;</code>. No signal, no request. Inside a re-rendered region, add <code>data-preserve-attr=\"open\"</code> so the morph leaves the user's choice alone."]] },
