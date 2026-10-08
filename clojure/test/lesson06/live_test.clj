@@ -24,6 +24,17 @@
       (is (string/includes? v "#1 for Ada: placed"))
       (is (not (string/includes? v "Grace")))
       (is (string/includes? v "id=\"drink-options\""))))
+  (testing "a tab sees its own draft and error, not another tab's"
+    (let [state (-> l/initial-state
+                    (l/handle-command {:type :open-tab :sid "ada" :tabid "t1" :stream 1 :draft {:drink :chai}})
+                    (l/handle-command {:type :open-tab :sid "ada" :tabid "t2" :stream 2 :draft {:drink :latte}})
+                    (l/handle-command {:type :place-order :sid "ada" :tabid "t1" :customer "Ada"}))
+          t1 (render state {:kind :customer :sid "ada" :tabid "t1"})
+          t2 (render state {:kind :customer :sid "ada" :tabid "t2"})]
+      (is (string/includes? t1 "<option selected=\"\" value=\"chai\">"))
+      (is (string/includes? t2 "<option selected=\"\" value=\"latte\">"))
+      (is (string/includes? t1 "<p class=\"error\">Your cart is empty.</p>"))
+      (is (not (string/includes? t2 "class=\"error\"")))))
   (testing "the board sees every order and the milk stock"
     (let [v (render (update two-customers :sold-out conj :oat) {:kind :board})]
       (is (string/includes? v "#1 Ada (placed)"))
@@ -53,6 +64,23 @@
       (is (= (render (assoc-in l/initial-state [:carts "ada"] [latte]) {:kind :customer :sid "ada"})
              (get-in @hub [:ada :last]))))))
 
+(deftest tab-commands-test
+  (let [opened (l/handle-command l/initial-state {:type :open-tab :sid "ada" :tabid "t1" :stream 1
+                                                  :draft {:drink :chai :size :small :milk :oat}})]
+    (testing "opening a stream adopts the tab's draft, fitted"
+      (is (= {:sid "ada" :stream 1 :draft {:drink :chai :size :medium :milk :oat}}
+             (get-in opened [:tabs "t1"]))))
+    (testing "a failed command records the error on its tab; the tab's next command clears it"
+      (let [failed (l/handle-command opened {:type :place-order :sid "ada" :tabid "t1" :customer "Ada"})]
+        (is (= "Your cart is empty." (get-in failed [:tabs "t1" :error])))
+        (is (nil? (get-in (l/handle-command failed {:type :remove-from-cart :sid "ada" :tabid "t1" :idx 0})
+                          [:tabs "t1" :error])))))
+    (testing "only the stream that opened the tab removes it"
+      (is (= opened (l/handle-command opened {:type :close-tab :tabid "t1" :stream 99})))
+      (is (= {} (:tabs (l/handle-command opened {:type :close-tab :tabid "t1" :stream 1})))))
+    (testing "an error for an unknown tab creates nothing"
+      (is (= {} (:tabs (l/handle-command l/initial-state {:type :place-order :sid "ada" :tabid "nope" :customer "Ada"})))))))
+
 (deftest stream-lifecycle-test
   (let [hub (l/make-hub)
         !state (atom l/initial-state)
@@ -72,7 +100,16 @@
     (testing "a reconnect gets the whole view again"
       (let [[again send-again] (recorder)]
         ((:on-open (l/stream-lifecycle hub !state {:kind :board})) send-again)
-        (is (= 1 (count @again)))))))
+        (is (= 1 (count @again)))))
+    (testing "a customer stream opens its tab with the draft it carries, and its close removes it"
+      (let [[tab-sent tab-fn] (recorder)
+            {:keys [on-open on-close]} (l/stream-lifecycle hub !state {:kind :customer :sid "ada" :tabid "t1"
+                                                                       :draft {:drink :espresso}})]
+        (on-open tab-fn)
+        (is (= {:drink :espresso :size :single :milk nil} (get-in @!state [:tabs "t1" :draft])))
+        (is (string/includes? (first @tab-sent) "<option selected=\"\" value=\"espresso\">"))
+        (on-close)
+        (is (nil? (get-in @!state [:tabs "t1"])))))))
 
 (defn- call [handler method uri & {:keys [signals sid]}]
   (handler (cond-> {:request-method method :uri uri :headers {"datastar-request" "true"}}
@@ -88,31 +125,43 @@
         app (l/app !state hub)
         [sent send-fn] (recorder)]
     (l/watch! !state hub)
-    ((:on-open (l/stream-lifecycle hub !state {:kind :customer :sid "ada"})) send-fn)
+    ((:on-open (l/stream-lifecycle hub !state {:kind :customer :sid "ada" :tabid "t1" :draft {:drink :latte}})) send-fn)
     (testing "the page opens its stream with data-init and keeps signals outside #app"
       (let [body (:body (call app :get "/" :sid "ada"))]
         (is (string/includes? body "data-init=\"@get(&apos;/customer/stream&apos;, {retry: &apos;always&apos;})\""))
         (is (re-find #"<body data-signals=" body))
+        (is (string/includes? body "data-signals:tabid__ifmissing=\"crypto.randomUUID()\""))
         (is (string/includes? body "<main id=\"app\">"))))
     (testing "commands answer 204 and the stream carries the change"
       (is (= 204 (:status (call app :post "/stock/oat/toggle"))))
       (is (= 2 (count @sent)))
       (is (string/includes? (last @sent) "Oat (sold out)")))
-    (testing "add-to-cart answers only $_error"
-      (let [{:keys [body]} (call app :post "/cart/items" :sid "ada" :signals {:drink "latte" :size "medium" :milk "whole" :qty 1})]
-        (is (= "event: datastar-patch-signals\ndata: signals {\"_error\":\"\"}\n\n" body))
-        (is (string/includes? (last @sent) "1 × Medium Whole Latte"))))
-    (testing "choosing a drink is a command: the draft moves to the server"
-      (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:drink "espresso" :size "medium" :milk "whole"})]
+    (testing "add-to-cart answers 204; the stream carries the cart"
+      (is (= 204 (:status (call app :post "/cart/items" :sid "ada"
+                                :signals {:tabid "t1" :drink "latte" :size "medium" :milk "whole" :qty 1}))))
+      (is (string/includes? (last @sent) "1 × Medium Whole Latte")))
+    (testing "a failed command answers 204 too; the error is server state the stream draws"
+      (is (= 204 (:status (call app :post "/orders" :sid "ada" :signals {:tabid "t1" :customer " "}))))
+      (is (string/includes? (last @sent) "<p class=\"error\">Enter your name.</p>"))
+      (is (= 204 (:status (call app :post "/cart/items" :sid "ada"
+                                :signals {:tabid "t1" :drink "latte" :size "small" :milk "whole" :qty 1}))))
+      (is (not (string/includes? (last @sent) "class=\"error\""))))
+    (testing "choosing a drink is a command: the tab's draft moves to the server"
+      (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:tabid "t1" :drink "espresso" :size "medium" :milk "whole"})]
         (is (= 200 status))
         (is (string/includes? body "data: signals {\"size\":\"single\",\"milk\":\"\"}"))
-        (is (= {:drink :espresso :size :single :milk nil} (get-in @!state [:drafts "ada"])))
+        (is (= {:drink :espresso :size :single :milk nil} (get-in @!state [:tabs "t1" :draft])))
         (is (string/includes? (last @sent) "<option selected=\"\" value=\"single\">"))
         (is (string/includes? (last @sent) "<option value=\"double\">"))))
-    (testing "the client-written error survives a re-render untouched"
-      (is (string/includes? (last @sent) "<p class=\"error\" data-ignore-morph=\"\" data-text=\"$_error\"></p>")))
+    (testing "no client-written error element and no data-ignore-morph"
+      (is (not (string/includes? (last @sent) "data-ignore-morph"))))
     (testing "a draft that still fits answers 204"
-      (is (= 204 (:status (call app :post "/draft" :sid "ada" :signals {:drink "latte" :size "large" :milk "almond"})))))
+      (is (= 204 (:status (call app :post "/draft" :sid "ada" :signals {:tabid "t1" :drink "latte" :size "large" :milk "almond"})))))
+    (testing "malformed signals don't cause a 500"
+      (is (= 204 (:status (app {:request-method :post :uri "/orders" :headers {"datastar-request" "true"}
+                                :body (java.io.ByteArrayInputStream. (.getBytes "[1,2" "UTF-8"))}))))
+      (is (= 204 (:status (app {:request-method :post :uri "/orders" :headers {"datastar-request" "true"}
+                                :body (java.io.ByteArrayInputStream. (.getBytes "[1,2]" "UTF-8"))})))))
     (testing "the draft command is guarded like the others"
       (is (= 403 (:status (app {:request-method :post :uri "/draft" :headers {}})))))
     (testing "there is no GET /drink-options in part 6"

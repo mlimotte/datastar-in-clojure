@@ -10,31 +10,36 @@
   function initial() {
     return {
       soldOut: [],
-      carts: { ada: [], grace: [], linus: [{ drink: "chai", size: "large", milk: "almond", qty: 1 }] },
+      carts: { ada: [], grace: [] },
+      // per-tab state, keyed by tab id; Ada has two tabs open
+      tabs: { t1: { sid: "ada", drink: "latte" }, t2: { sid: "ada", drink: "latte" }, g1: { sid: "grace", drink: "mocha" } },
       orders: [{ id: 1, sid: "ada", customer: "Ada", status: "placed", line: "1 × Latte, medium, oat" },
-               { id: 2, sid: "linus", customer: "Linus", status: "making", line: "2 × Espresso, double" }],
+               { id: 2, sid: "grace", customer: "Grace", status: "making", line: "2 × Espresso, double" }],
     };
   }
   const milkSelect = (st) => `<select id="milk">` + MILKS.map((m) => st.soldOut.includes(m)
     ? `<option value="${m}" disabled>${cap(m)} (sold out)</option>` : `<option value="${m}">${cap(m)}</option>`).join("") + `</select>`;
-  function customerView(st, sid) {
+  function customerView(st, tab) {
+    const { sid, drink } = st.tabs[tab];
     const cart = st.carts[sid].map((l) => `<li>${l.qty} × ${DR[l.drink]}, ${l.size}, ${l.milk}</li>`).join("");
     const mine = st.orders.filter((o) => o.sid === sid).map((o) => `<li id="order-${o.id}">#${o.id} ${o.line} (${o.status})</li>`).join("");
-    return `<main id="app"><section id="draft"><select id="drink">…</select><div id="drink-options"><select id="size">…</select>${milkSelect(st)}</div><input id="customer" data-bind:customer></section><section id="cart"><ul>${cart}</ul></section><ul id="my-orders">${mine}</ul></main>`;
+    const drinks = Object.keys(DR).map((d) => `<option value="${d}"${d === drink ? " selected" : ""}>${DR[d]}</option>`).join("");
+    return `<main id="app"><section id="draft"><select id="drink">${drinks}</select><div id="drink-options"><select id="size">…</select>${milkSelect(st)}</div><input id="customer" data-bind:customer></section><section id="cart"><ul>${cart}</ul></section><ul id="my-orders">${mine}</ul></main>`;
   }
   function boardView(st) {
     const col = (s) => `<section id="col-${s}"><ul>` + st.orders.filter((o) => o.status === s).map((o) => `<li id="board-order-${o.id}">#${o.id} ${o.customer}: ${o.line}</li>`).join("") + `</ul></section>`;
     return `<main id="app"><section id="stock">` + MILKS.map((m) => `<button id="stock-${m}">${m}${st.soldOut.includes(m) ? " (sold out)" : ""}</button>`).join("") + `</section>${["placed", "making", "ready"].map(col).join("")}</main>`;
   }
   const SUBS = [
-    { key: "ada", title: "Ada", who: "{:kind :customer :sid ada}", view: (st) => customerView(st, "ada") },
-    { key: "grace", title: "Grace", who: "{:kind :customer :sid grace}", view: (st) => customerView(st, "grace") },
-    { key: "linus", title: "Linus", who: "{:kind :customer :sid linus}", view: (st) => customerView(st, "linus") },
+    { key: "t1", title: "Ada · tab 1", who: "{:kind :customer :sid ada :tabid t1}", view: (st) => customerView(st, "t1") },
+    { key: "t2", title: "Ada · tab 2", who: "{:kind :customer :sid ada :tabid t2}", view: (st) => customerView(st, "t2") },
+    { key: "g1", title: "Grace", who: "{:kind :customer :sid grace :tabid g1}", view: (st) => customerView(st, "g1") },
     { key: "sam", title: "Sam (board)", who: "{:kind :board}", view: boardView },
   ];
   const COMMANDS = [
     { label: "Sam advances #1", cmd: "{:type :advance :id 1}", apply: (st) => { st.orders[0].status = "making"; } },
-    { label: "Grace adds a mocha", cmd: '{:type :add-to-cart :sid "grace" :line {:drink :mocha …}}', apply: (st) => { st.carts.grace.push({ drink: "mocha", size: "small", milk: "whole", qty: 1 }); } },
+    { label: "Grace adds a mocha", cmd: '{:type :add-to-cart :sid "grace" :tabid "g1" :line {:drink :mocha …}}', apply: (st) => { st.carts.grace.push({ drink: "mocha", size: "small", milk: "whole", qty: 1 }); } },
+    { label: "Ada, tab 1: Chai", cmd: '{:type :choose-draft :sid "ada" :tabid "t1" :draft {:drink :chai …}}', apply: (st) => { st.tabs.t1.drink = "chai"; } },
     { label: "Sam: oat sold out", cmd: "{:type :toggle-stock :milk :oat}", apply: (st) => { st.soldOut.push("oat"); } },
   ];
   const evBytes = (html) => new TextEncoder().encode(`event: datastar-patch-elements\ndata: elements ${html}\n\n`).length;
@@ -44,7 +49,7 @@
     const last = Object.fromEntries(SUBS.map((s) => [s.key, s.view(st)]));
     const F = [];
     const base = { active: null, status: {} };
-    F.push({ ...base, top: "Four streams are open. Each subscriber’s :last is the HTML it was last sent.", note: "Pick a command, then step." });
+    F.push({ ...base, top: "Four streams are open: Ada has two tabs (one sid cookie, two tab ids). Each subscriber’s :last is the HTML it was last sent.", note: "Pick a command, then step." });
     COMMANDS[ci].apply(st);
     F.push({ ...base, top: `POST → (swap! state handle-command ${COMMANDS[ci].cmd})\n→ 204 No Content\n→ add-watch fires broadcast!`, note: "The command handler is done. Everything below happens in the watch." });
     const status = {};
@@ -61,7 +66,7 @@
     return F;
   }
 
-  const v = frame("#viz-fanout", "broadcast!", "one command, four open streams, render each, skip the identical ones");
+  const v = frame("#viz-fanout", "broadcast!", "one command, four open streams (two are Ada's tabs), render each, skip the identical ones");
   const top = el("div", { class: "bc-top" });
   const grid = el("div", { class: "bc-grid" });
   const cards = {};
@@ -90,7 +95,15 @@
     prompt: "Suppose the server rendered <b>no</b> <code>selected</code> attributes. Ada has Latte, <b>Medium</b> (Latte sizes: Small, Medium, Large). She switches the drink to Chai Latte (sizes: Medium, Large). Medium is still valid, so no signal patch is sent; her stream re-renders <code>#drink-options</code>. What does the size drop-down show?",
     choices: ["Medium", "Large", "Small", "Nothing selected"],
     answer: 1,
-    explain: "The options have no ids, so the morph pairs them by position. Position 2 (Medium, selected) is rewritten into Large and keeps its selected property; position 1 becomes Medium, unselected. <code>$size</code> is still <code>medium</code> and never changed, so <code>data-bind</code> doesn't re-sync. Rendering <code>selected</code> from the stored draft fixes it.",
+    explain: "The options have no ids, so the morph pairs them by position. Position 2 (Medium, selected) is rewritten into Large and keeps its selected property; position 1 becomes Medium, unselected. No option's <code>selected</code> attribute changed presence, so the morph flipped no property and fired no <code>datastar-prop-change</code>: <code>data-bind</code> doesn't re-sync, and <code>$size</code> stays <code>medium</code>. Rendering <code>selected</code> from the stored draft fixes it.",
+  });
+
+  // ---------- predict: two tabs, one cookie ----------
+  predict("#predict-tabs", {
+    prompt: "Suppose the draft were stored per <b>sid cookie</b>: <code>:drafts {sid {:drink :size :milk}}</code>. Ada has Brew Board open in two tabs, both on Latte, Small. In tab A she switches to Chai Latte (sizes: Medium, Large); the server fits her draft to Chai, Medium and re-renders every stream of her sid. What happens in tab B?",
+    choices: ["Nothing: tab B still shows Latte, Small", "Tab B shows Chai, Medium and $size is medium", "Tab B shows Chai, Medium but its $size is still small", "Tab B reloads"],
+    answer: 2,
+    explain: "Both tabs send the same cookie, so both streams render the one stored draft. Tab B's <code>#drink</code> option flips its <code>selected</code> attribute, the morph sets the property and fires <code>datastar-prop-change</code>, and <code>data-bind</code> copies <code>chai</code> into B's <code>$drink</code>. But B's first size option keeps its <code>selected</code> attribute (Small selected became Medium selected), so no property flips and <code>$size</code> stays <code>small</code>. B shows Chai, Medium; its next Add to cart sends size small and fails. We reproduced exactly this in Chrome. Keying the draft by a tab id fixes it.",
   });
 
   // ---------- predict: focus ----------
@@ -181,6 +194,6 @@
     prompt: "Ada's phone locks for 5 minutes. Meanwhile Sam advances her order to <code>ready</code>. Brew Board sends no event ids and keeps no replay buffer. What does Ada see when she unlocks?",
     choices: ["Still “placed” until she reloads", "“ready”, within about a second", "“ready” only after 10 retries"],
     answer: 1,
-    explain: "A hidden tab closes its <code>@get</code> stream (openWhenHidden is false for GET); becoming visible opens a new one. Our <code>on-open</code> sends the whole current view, so the first event is already the truth.",
+    explain: "A hidden tab closes its <code>@get</code> stream (openWhenHidden is false for GET); becoming visible opens a new one. Our <code>on-open</code> sends the whole current view, so the first event is already the truth. The new stream's GET also carries her tab's signals as they are now, so the server re-adopts her draft before it renders.",
   });
 })();

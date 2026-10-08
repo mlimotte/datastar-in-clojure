@@ -3,7 +3,8 @@
             [clojure.string :as string]
             [clojure.test :refer [deftest is testing]]
             [lesson07.brew :as brew]
-            [lesson07.native-shell :as n]))
+            [lesson07.native-shell :as n]
+            [lesson07.sse]))
 
 (deftest shell-request-test
   (is (true? (n/shell-request? {:headers {"user-agent" n/shell-ua}})))
@@ -96,13 +97,28 @@
         (call app :post "/orders/2/advance")
         (call app :post "/orders/2/advance")
         (is (= [["tok-1" "Ada, your order #2 is ready."]] @pushed)))
-      (testing "choosing a drink is a POST /draft command"
-        (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:drink "chai" :size "small" :milk "oat"})]
+      (testing "choosing a drink is a POST /draft command, stored for the tab"
+        (let [{:keys [status body]} (call app :post "/draft" :sid "ada" :signals {:tabid "t1" :drink "chai" :size "small" :milk "oat"})]
           (is (= 200 status))
           (is (string/includes? body "{\"size\":\"medium\"}"))
-          (is (= {:drink :chai :size :medium :milk :oat} (get-in @!state [:drafts "ada"])))
-          (is (string/includes? (n/html (n/view-for @!state {:kind :customer :sid "ada"}))
-                                "<option selected=\"\" value=\"medium\">"))))
+          (is (= {:drink :chai :size :medium :milk :oat} (get-in @!state [:tabs "t1" :draft])))
+          (is (string/includes? (n/html (n/view-for @!state {:kind :customer :sid "ada" :tabid "t1" :shell? true}))
+                                "<option selected=\"\" value=\"medium\">"))
+          (testing "another tab of the same browser keeps its own draft"
+            (is (string/includes? (n/html (n/view-for @!state {:kind :customer :sid "ada" :tabid "t2"}))
+                                  "<option selected=\"\" value=\"latte\">")))))
+      (testing "a failed command's error is server state, drawn in that tab's view"
+        (is (= 204 (:status (call app :post "/orders" :sid "ada" :signals {:tabid "t1" :customer "Ada"}))))
+        (is (string/includes? (n/html (n/view-for @!state {:kind :customer :sid "ada" :tabid "t1"}))
+                              "<p class=\"error\">Your cart is empty.</p>"))
+        (is (not (string/includes? (n/html (n/view-for @!state {:kind :customer :sid "ada" :tabid "t1"}))
+                                   "data-ignore-morph"))))
+      (testing "the page seeds a tab id on <body>"
+        (is (string/includes? (:body (call app :get "/" :ua n/shell-ua))
+                              "data-signals:tabid__ifmissing=\"crypto.randomUUID()\"")))
+      (testing "malformed signals are {}, not a 500"
+        (is (= {} (lesson07.sse/read-signals {:request-method :post
+                                              :body (java.io.ByteArrayInputStream. (.getBytes "not json" "UTF-8"))}))))
       (testing "an order screen is only for its own sid"
         (is (= 200 (:status (call app :get "/orders/1" :sid "ada"))))
         (is (= 404 (:status (call app :get "/orders/1" :sid "grace"))))))))

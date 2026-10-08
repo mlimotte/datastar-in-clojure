@@ -82,7 +82,8 @@
                 [:title title]
                 [:script (raw-string bridge-shim)]
                 [:script {:type "module" :src datastar-src}]]
-         [:body (when signals {:data-signals (json/generate-string signals)})
+         [:body (when signals {:data-signals (json/generate-string signals)
+                               :data-signals:tabid__ifmissing "crypto.randomUUID()"})
           (when-not shell?                                   ;; the shell draws its own nav bar
             [:nav.web-nav [:a {:href "/"} "Order"] " · " [:a {:href "/board"} "Board"]])
           [:div {:data-on:brew:native__window "…see below…"}]
@@ -90,7 +91,9 @@
           view]])))</code></pre>
   <p class="caption">From <code>lesson07.native-shell</code>. Handlers call it with
     <code>:shell? (shell-request? req)</code>. Note <code>{retry: 'always'}</code> on the stream:
-    part 6's advice for streams that the server may end cleanly, e.g. on a deploy.</p>
+    part 6's advice for streams that the server may end cleanly, e.g. on a deploy. The tab id is
+    part 6's too; a web view is a tab like any other, with its own draft. (A shell loading
+    <code>https://</code> is a secure context, so <code>crypto.randomUUID()</code> is there.)</p>
 
   <p>In the shell, the web nav goes (the shell has a native one), and nothing else changes. The
     <code>#app</code> view, the live stream, the drop-down and the commands are byte-for-byte the
@@ -232,7 +235,8 @@
             (push! token message)))))))</code></pre>
   <p class="caption"><code>notify!</code> sends a <code>bridge-script</code>
     (<code>{:type "notify" … :haptic "success"}</code>) to every open stream of that
-    <code>sid</code>, and returns the notifications that found no open stream. Those fall back to
+    <code>sid</code> (every tab of that customer: a notification is per customer, unlike the draft),
+    and returns the notifications that found no open stream. Those fall back to
     <code>push!</code>.</p>
 
   <p>When Sam taps Advance on order #1 for the second time, Ada's phone gets the re-rendered view
