@@ -68,9 +68,11 @@
 
 (defn read-signals
   "Read the signals Datastar sent: the datastar query parameter for GET and DELETE, the JSON
-  body for other methods. Return a map with keyword keys."
+  body for other methods. Return a map with keyword keys; bad or non-object JSON gives {}."
   [{:keys [request-method query-params body]}]
-  (let [raw (if (#{:get :delete} request-method)
-              (get query-params "datastar")
-              (some-> body slurp))]
-    (if (string/blank? raw) {} (json/parse-string raw true))))
+  (let [raw    (if (#{:get :delete} request-method)
+                 (get query-params "datastar")
+                 (some-> body slurp))
+        parsed (when-not (string/blank? raw)
+                 (try (json/parse-string raw true) (catch Exception _ nil)))]
+    (if (map? parsed) parsed {})))

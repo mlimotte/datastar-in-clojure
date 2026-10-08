@@ -15,7 +15,8 @@
     ["The text in a drink search box", [2], "Input the server needs to filter with, so it must not start with _."],
     ["Whether a request is in flight", [3], "data-indicator:_loading: transient, local, never sent."],
     ["Order #12's status, \"making\"", [0], "Sam changes it; Ada must see it. Shared state."],
-    ["A quick price estimate while configuring", [2, 3], "A data-computed for display. Sent or not (lesson 3 sends $estimate; _estimate would not be), the server never trusts it."],
+    ["The price of the drink being configured", [1], "A business value. The server prices the draft and renders it (part 3's #quote); a browser copy of the pricing rule would drift."],
+    ["The message \"Oat milk is sold out.\" after a refused add", [1], "The server's answer to a command, rendered into #draft-error. As a signal, the page would have to keep it in sync."],
     ["The customer name for the order", [2], "Input, sent with \"Place order\"."],
   ];
   const A = frame("#viz-sorter", "Where does it live?", "pick a home for each; the verdict appears as you go");
@@ -87,7 +88,7 @@
   ];
 
   function framesFor(sc) {
-    const sig0 = { drink: sc.from.drink, size: sc.from.size, milk: sc.from.milk, qty: 1, error: "" };
+    const sig0 = { drink: sc.from.drink, size: sc.from.size, milk: sc.from.milk, qty: 1 };
     const choice = validChoice(sc.to, sc.soldOut, sc.from);
     const [elHtml, sigJson] = CAPTURED[sc.to];
     const mine = optionsHtml(sc.to, sc.soldOut, choice);

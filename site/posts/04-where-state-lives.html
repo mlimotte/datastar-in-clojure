@@ -29,11 +29,12 @@
 
   <div data-warmup></div>
 
-  <p>Part 3 ended with a smell. The server computed a price and sent it back as a number, so the
-    page had to know where to put it, how to format it, and what to show next to it. Nothing broke.
-    But follow that road for a few weeks and you end up with the whole app's state in signals,
-    every view built from <code>data-text</code> and <code>data-show</code>, and the server
-    reduced to a JSON API. That's a single-page app with fewer tools.</p>
+  <p>Part 3 made two choices that are easy to get wrong in the other direction. The browser never
+    computes a price, and the server's answer is HTML rather than a <code>$quote</code> signal.
+    Follow the other road for a few weeks and you end up with the whole app's state in signals,
+    every view built from <code>data-text</code> and <code>data-show</code>, the business rules
+    copied into expressions, and the server reduced to a JSON API. That's a single-page app with
+    fewer tools.</p>
 
   <p>Datastar's design pushes the other way. The server renders HTML, the browser patches it in,
     and signals carry the little bit of state that only exists in the browser. The hard part is
@@ -58,9 +59,11 @@
       open, which tab is selected, whether a request is in flight.</li>
   </ol>
 
-  <p>Values derived from those for display, like part 3's <code>$estimate</code>, can be
-    <code>data-computed</code> for instant feedback, as long as the server computes the real value
-    again whenever it matters. A computed signal is a convenience, never evidence.</p>
+  <p>A <code>data-computed</code> may format those values for display, like part 3's
+    <code>$_summary</code> ("2 × medium oat latte"), count them, or turn them into a flag. It may not
+    derive a business value: a price, a total, whether an order is valid. Those are the server's,
+    and they come back as HTML. Errors are the same: a validation message is the server's answer,
+    rendered into an element with an id, never a signal the page has to keep in sync.</p>
 
   <p>Applied to Brew Board:</p>
 
@@ -71,12 +74,20 @@
       <tr><td>customer name</td><td>signal <code>customer</code></td><td>input; sent with "Place order"</td></tr>
       <tr><td>is a menu open, hover, local toggles</td><td><code>_</code> signal, e.g. <code>_open</code></td><td>presentation only, never sent</td></tr>
       <tr><td>request in flight</td><td><code>data-indicator:_loading</code></td><td>presentation only, transient</td></tr>
-      <tr><td>displayed estimate</td><td><code>data-computed</code>, recomputed on the server</td><td>display convenience; the server is the price authority</td></tr>
+      <tr><td>the draft's price, a validation message</td><td>server-rendered HTML (<code>#quote</code>, <code>#draft-error</code>)</td><td>business rules exist only on the server; the page shows its answer</td></tr>
       <tr><td>cart lines</td><td>server, keyed by a <code>sid</code> cookie</td><td>survives reload, works across devices, validated against stock</td></tr>
       <tr><td>orders, statuses, sold-out milks</td><td>server</td><td>shared between people</td></tr>
       <tr><td>the size and milk option lists</td><td>server-rendered HTML</td><td>depend on menu and stock</td></tr>
     </tbody>
   </table></div>
+
+  <div class="aside"><p><strong>Tip.</strong> A signal count that grows with your data is a bug.
+    Every signal whose name doesn't start with <code>_</code> rides in every request, and for a GET
+    that means in the URL (<code>fetch.ts</code> puts the JSON in the <code>datastar</code> query
+    parameter). One signal per row, say <code>sel_1</code> … <code>sel_400</code> for checkboxes,
+    eventually overflows the URL; a production Datastar app hit HTTP 414 exactly this way. Keep
+    per-row state on the server, keyed by one id, and render it back as HTML (a
+    <code>checked</code> attribute, a count).</p></div>
 
   <p>Try placing these yourself before reading on. Some are deliberately close calls.</p>
 
@@ -117,10 +128,25 @@
 
   <p>"Add to cart" is <code>@post('/cart/items')</code>. The draft signals arrive as the JSON body.
     The handler validates them against the menu and the current stock, updates the atom, and
-    answers with two events: the re-rendered <code>#cart</code> as HTML, and
-    <code>{"error": ""}</code> to clear any old message. On a bad draft it sends only
-    <code>{"error": "Oat milk is sold out."}</code>. The cart's markup, its line format, and its
-    total are server code. The browser holds none of it.</p>
+    answers with two element patches: the re-rendered <code>#cart</code>, and an empty
+    <code>#draft-error</code> to clear any old message. On a bad draft it sends only
+    <code>&lt;p class="error" id="draft-error"&gt;Oat milk is sold out.&lt;/p&gt;</code>. The
+    cart's markup, its line format, its total, and the error's wording are server code. The browser
+    holds none of it.</p>
+
+<pre><code class="language-clojure">(defn error-view
+  "The #draft-error element: the server's reason the draft was refused, or empty."
+  [message]
+  [:p#draft-error.error message])
+
+(if-let [err (draft-error draft (:sold-out @state))]
+  (sse/sse-response (sse/patch-elements (str (h/html (error-view err))) {}))
+  (sse/sse-response
+   (sse/patch-elements (str (h/html (cart-view (get-in new-state [:carts sid])))) {})
+   (sse/patch-elements (str (h/html (error-view nil))) {})))</code></pre>
+  <p class="caption">From <code>add-item-response</code>, abridged (the real one also refuses a
+    request with no <code>sid</code> cookie, and computes <code>new-state</code> with
+    <code>swap!</code>).</p>
 
   <p>Notice what's in the signals and what isn't. The <em>draft</em> (one line being configured)
     is a signal, because it is input. Once committed, the line becomes server state, and from then

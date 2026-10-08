@@ -2,7 +2,9 @@
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [clojure.test :refer [deftest is testing]]
-            [lesson05.routes :as r]))
+            [hiccup2.core]
+            [lesson05.routes :as r]
+            [lesson05.sse :as sse]))
 
 (def latte {:drink :latte :size :medium :milk :oat :qty 1})
 
@@ -102,3 +104,21 @@
       (is (= :making (get-in @!state [:orders 1 :status])))
       (call app :post "/stock/oat/toggle")
       (is (= #{:oat} (:sold-out @!state))))))
+
+(deftest read-signals-test
+  (testing "bad or non-object JSON gives {}, so a crafted request can't cause a 500"
+    (is (= {} (sse/read-signals {:request-method :get :query-params {"datastar" "{oops"}})))
+    (is (= {} (sse/read-signals {:request-method :post :body (java.io.ByteArrayInputStream. (.getBytes "\"a string\""))})))
+    (is (= {} (sse/read-signals {:request-method :post :body nil}))))
+  (testing "a malformed command body is refused with a message, not a 500"
+    (let [app  (r/app (atom r/initial-state))
+          resp (app {:request-method :post :uri "/cart/items" :headers {"datastar-request" "true" "cookie" "sid=s1"}
+                     :body (java.io.ByteArrayInputStream. (.getBytes "not json"))})]
+      (is (= 200 (:status resp)))
+      (is (string/includes? (:body resp) "id=\"draft-error\">Pick a drink.")))))
+
+(deftest place-order-disabled-test
+  (testing "the server renders disabled on Place order while the cart is empty"
+    (let [html #(str (hiccup2.core/html %))]
+      (is (string/includes? (html (r/cart-view r/initial-state "s1")) "disabled=\"\" id=\"place-order\""))
+      (is (not (string/includes? (html (r/cart-view with-cart "s1")) "disabled"))))))

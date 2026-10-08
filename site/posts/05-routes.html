@@ -135,10 +135,15 @@
     part 3 built:</p>
 
 <pre><code class="language-clojure">(defn read-signals [{:keys [request-method query-params body]}]
-  (some-> (if (#{:get :delete} request-method)
-            (get query-params "datastar")
-            (slurp body))
-          (json/parse-string true)))</code></pre>
+  (let [raw    (if (#{:get :delete} request-method)
+                 (get query-params "datastar")
+                 (some-&gt; body slurp))
+        parsed (when-not (string/blank? raw)
+                 (try (json/parse-string raw true) (catch Exception _ nil)))]
+    (if (map? parsed) parsed {})))</code></pre>
+  <p class="caption">Unparseable or non-object JSON gives <code>{}</code>, so a hand-made request
+    reaches validation and gets a message, not a 500. The tests post <code>not json</code> to
+    <code>/cart/items</code> and expect "Pick a drink."</p>
 
   <p>The important fact about signals is the one people get wrong. Datastar does not send "the signals
     this action uses". The default filter in <code>fetch.ts</code> is
@@ -195,7 +200,17 @@
     parser: a 204 or a redirect ends quietly, and a 4xx or 5xx fires a <code>datastar-fetch</code>
     error event and patches nothing (and with the default <code>retry: 'auto'</code>, it isn't retried).
     So "you can't order oat milk, it's sold out" is a <b>200</b> whose events patch an error message
-    into the page. A 4xx is for requests no honest page would send.</p>
+    into the page, as HTML: <code>add-item</code> answers a refused line with
+    <code>&lt;p id="draft-error"&gt;Oat milk is sold out.&lt;/p&gt;</code> and a good one with the
+    new <code>#cart</code> plus an empty <code>#draft-error</code>. No signal holds the message. A 4xx
+    is for requests no honest page would send.</p>
+
+<pre><code class="language-clojure">(defn add-item [!state {:keys [sid] :as req}]
+  (let [line (draft-line (sse/read-signals req))]
+    (if-let [err (line-error @!state line)]
+      (sse/sse-response (sse/patch-elements (html [:p#draft-error err])))
+      (update (run-command! !state {:type :add-to-cart :sid sid :line line})
+              :body str (sse/patch-elements (html [:p#draft-error]))))))</code></pre>
 
   <h2>Responding: fragment per action</h2>
 
@@ -218,6 +233,13 @@ data: elements &lt;section id="my-orders"&gt;&lt;h2&gt;Your orders&lt;/h2&gt;&lt
 event: datastar-patch-signals
 data: signals {"customer":""}
 </code></pre>
+
+  <div class="aside"><p><strong>Tip.</strong> When the server re-renders an element anyway, let it
+    decide <code>disabled</code> too. <code>cart-view</code> renders "Place order" with
+    <code>disabled</code> while the cart is empty, and every cart command re-sends
+    <code>#cart</code>, so the button is always right. A client expression such as
+    <code>data-attr:disabled="$cartCount == 0"</code> would need a count signal that mirrors server
+    state.</p></div>
 
   <p>It is the natural first design, and the one you'd write coming from htmx. It also has a cost
     that grows with the app: <b>each command has to know which parts of which pages show the thing it
@@ -263,6 +285,46 @@ data: signals {"customer":""}
     cross-site POSTs at all. A real app adds a CSRF token as well: render it into a signal on the page
     GET (for instance <code>data-signals:csrf</code>, not <code>_</code>-prefixed, because it has to be
     sent), and check it in this same middleware. The toy stops at the header.</p>
+
+  <h2>Expressions are JavaScript</h2>
+
+  <p>The board renders one button per order, with the order's id inside the expression:
+    <code>(str "@post('/orders/" id "/advance')")</code>. That is safe because <code>id</code> is an
+    integer the server assigned. Now suppose a "reorder" button carried the customer's name the
+    same way:</p>
+
+<pre><code class="language-clojure">;; WRONG: a stored value inside an expression
+[:button {:data-on:click (str "@post('/orders?for=" customer "')")} "Reorder"]</code></pre>
+
+  <p>A customer who typed their name as <code>x');alert(1);('</code> gets this HTML:</p>
+
+<pre><code class="language-html">&lt;button data-on:click="@post(&amp;apos;/orders?for=x&amp;apos;);alert(1);(&amp;apos;&amp;apos;)"&gt;</code></pre>
+
+  <p>Hiccup escaped every quote, and it didn't help. Escaping protects the HTML <em>attribute</em>:
+    the browser decodes <code>&amp;apos;</code> back to <code>'</code> when it parses the page, and
+    Datastar reads the decoded value from <code>el.dataset</code> (<code>applyEls</code> in
+    <code>engine.ts</code>). What Datastar evaluates is
+    <code>@post('/orders?for=x');alert(1);('')</code>, three JavaScript statements, the second of
+    them chosen by the customer. That is stored XSS, and it fires for whoever clicks Sam's button.</p>
+
+  <p>The rule: put only three kinds of thing inside an expression string.</p>
+
+  <ul>
+    <li><b>Server literals</b>: an integer id, a keyword from a fixed set (<code>(name milk)</code>
+      for <code>:oat</code>), <code>true</code>/<code>false</code>.</li>
+    <li><b>URL-encoded values</b>: <code>(ring.util.codec/url-encode customer)</code> turns
+      <code>x');alert(1);('</code> into <code>x%27%29%3Balert%281%29%3B%28%27</code>, which can't
+      end the string.</li>
+    <li><b>Signal references</b>: <code>@post('/orders')</code> and let <code>$customer</code> travel
+      in the body, or refer to an id the server owns and look the name up there.</li>
+  </ul>
+
+  <p>Never a raw stored or request value. The same thinking covers the other two places values meet
+    code. Seed signals with cheshire (<code>{:data-signals (json/generate-string m)}</code>): JSON
+    is a JavaScript literal and cheshire escapes the quotes inside strings, which hand-built
+    <code>(str "{name: '" name "'}")</code> doesn't. And inline <code>&lt;script&gt;</code> text must
+    escape <code>&lt;/</code>, or a value containing <code>&lt;/script&gt;</code> ends the tag; part 7's
+    <code>bridge-script</code> does this.</p>
 
   <div class="compare" data-label="How htmx does it"><p>htmx marks its requests with
     <code>HX-Request: true</code> and expects HTML fragments back, swapped by

@@ -1,9 +1,9 @@
 (ns lesson03.signals
   "Part 3: signals.
   The drink draft lives in signals: data-signals declares them, data-bind ties them to inputs,
-  data-computed derives an estimate in the browser, data-text / data-show / data-class /
-  data-attr render them, and data-indicator tracks the request. GET /quote reads the signals
-  on the server and patches back the price the server trusts."
+  data-computed formats them for display, data-text / data-class / data-attr render them, and
+  data-indicator tracks the request. GET /quote reads the signals on the server and answers with
+  HTML: the price, or why the draft is not valid. The browser never computes a price."
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [hiccup2.core :as h]
@@ -42,6 +42,10 @@
   ;; END EXERCISE
   )
 
+(defn label [k] (string/capitalize (name k)))
+
+(defn dollars [cents] (format "$%d.%02d" (quot cents 100) (rem cents 100)))
+
 (defn ->draft
   "Turn signals (strings from the browser) into a draft with keywords."
   [{:keys [drink size milk qty]}]
@@ -65,46 +69,53 @@
 
 (defn read-signals
   "Read the signals Datastar sent. GET and DELETE send them as JSON in the datastar query
-  parameter; other methods send a JSON body. Return a map with keyword keys."
+  parameter; other methods send a JSON body. Return a map with keyword keys. Bad input gives {}:
+  anyone can send any text, so it must not cause a 500."
   [{:keys [request-method query-params body]}]
   ;; EXERCISE(read-signals): Take the JSON text from the "datastar" query parameter for GET and
   ;; DELETE, and from the request body for other methods. Parse it with keyword keys. Return {}
-  ;; when there is nothing to read.
-  (let [raw (if (#{:get :delete} request-method)
-              (get query-params "datastar")
-              (some-> body slurp))]
-    (if (string/blank? raw) {} (json/parse-string raw true)))
+  ;; when there is nothing to read, when the text is not valid JSON, or when the JSON is not an
+  ;; object.
+  (let [raw    (if (#{:get :delete} request-method)
+                 (get query-params "datastar")
+                 (some-> body slurp))
+        parsed (when-not (string/blank? raw)
+                 (try (json/parse-string raw true) (catch Exception _ nil)))]
+    (if (map? parsed) parsed {}))
   ;; END EXERCISE
   )
 
 (defn quote-response
-  "Answer the browser's signals with the server's quote: patch the quote and error signals."
+  "Answer the browser's signals with the server's quote, as HTML: patch #quote with the price,
+  or with why the draft is not valid."
   [signals]
-  ;; EXERCISE(quote-response): Make a draft from the signals. If it has an error, patch
-  ;; {quote: 0, error: <message>}. Otherwise patch {quote: price × qty, error: ""}. Return a
-  ;; one-shot SSE response.
-  (let [draft (->draft signals)]
+  ;; EXERCISE(quote-response): Make a draft from the signals. If draft-error finds a problem,
+  ;; render [:p#quote.error message]. Otherwise render [:p#quote "Server price: " [:strong
+  ;; total]] where total is price × qty in dollars. Return a one-shot SSE response with one
+  ;; patch-elements event.
+  (let [{:keys [qty] :as draft} (->draft signals)]
     (sse/sse-response
-     (sse/patch-signals (if-let [err (draft-error draft)]
-                          {:quote 0 :error err}
-                          {:quote (* (price-cents draft) (:qty draft)) :error ""})
-                        {})))
+     (sse/patch-elements
+      (str (h/html (if-let [err (draft-error draft)]
+                     [:p#quote.error err]
+                     [:p#quote "Server price: " [:strong (dollars (* qty (price-cents draft)))]])))
+      {})))
   ;; END EXERCISE
   )
 
 ;; ---------------------------------------------------------------- page
 
 (def initial-signals
-  {:drink "latte" :size "medium" :milk "oat" :qty 1 :quote 0 :error ""
-   ;; Underscore: the browser keeps these, @get never sends them.
-   :_loading false
-   :_prices {:base (update-vals menu :base) :size size-delta :milk milk-delta}})
+  {:drink "latte" :size "medium" :milk "oat" :qty 1
+   ;; Underscore: the browser keeps it, @get never sends it.
+   :_loading false})
 
 (defn- options [pairs]
   (for [[value label] pairs] [:option {:value value} label]))
 
-(def estimate-expr
-  "($_prices.base[$drink] + ($_prices.size[$size] || 0) + ($_prices.milk[$milk] || 0)) * $qty")
+(def summary-expr
+  "Formatting only: it moves signal values into one string and derives no business value."
+  "$qty + ' × ' + $size + ($milk ? ' ' + $milk : '') + ' ' + $drink")
 
 (defn page []
   (str "<!DOCTYPE html>"
@@ -112,14 +123,16 @@
         [:html
          [:head [:meta {:charset "utf-8"}] [:title "Part 3: signals"]
           [:script {:type "module" :src datastar-cdn}]
-          [:style ".busy{opacity:.5} .error{color:#b00} pre{background:#f4f4f4;padding:.5em}"]]
+          [:style ".busy{opacity:.5} .error{color:#b00} .muted{color:#777} pre{background:#f4f4f4;padding:.5em}"]]
          [:body
           [:h1 "Signals"]
           ;; Hiccup sorts attributes and Datastar applies them in source order, so the
           ;; signals go on an outer element: they must exist before data-computed reads them.
           [:div#app {:data-signals (json/generate-string initial-signals)}
-           [:div#draft {:data-computed:estimate estimate-expr
+           [:div#draft {:data-computed:_summary summary-expr
+                        :data-computed:_unit    "$qty == 1 ? 'drink' : 'drinks'"
                         :data-class:busy        "$_loading"}
+            [:h2 "Your " [:span {:data-text "$_unit"}]]
             [:label "Drink " [:select {:data-bind:drink ""}
                               (options (for [[k {:keys [name]}] menu] [(clojure.core/name k) name]))]]
             [:label " Size " [:select {:data-bind:size ""}
@@ -127,14 +140,12 @@
             [:label " Milk " [:select {:data-bind:milk ""}
                               (options (cons ["" "no milk"] (for [k (keys milk-delta)] [(name k) (name k)])))]]
             [:label " Qty " [:input {:type "number" :min 1 :max 10 :data-bind:qty ""}]]
-            [:p "Browser estimate: " [:span {:data-text "'$' + ($estimate / 100).toFixed(2)"}]]
+            [:p "Draft: " [:span {:data-text "$_summary"}]]
             [:button {:data-on:click        "@get('/quote')"
                       :data-indicator:_loading ""
                       :data-attr:disabled   "$_loading"}
              "Ask the server"]
-            [:p {:data-show "$quote > 0"}
-             "Server quote: " [:strong {:data-text "'$' + ($quote / 100).toFixed(2)"}]]
-            [:p.error {:data-show "$error != ''" :data-text "$error"}]
+            [:p#quote.muted "Ask the server for a price."]
             [:h3 "Every signal in the browser"]
             [:pre {:data-json-signals ""}]
             [:h3 "What @get('/quote') sends (no _ signals)"]
@@ -180,6 +191,13 @@
                (.header "Datastar-Request" "true")
                .build))))
 
+(defn- datastar-get-raw
+  "GET with any text in the datastar parameter, the way a hand-made request could."
+  [url raw]
+  (let [full (str url "?datastar=" (codec/url-encode raw))]
+    (println (str "→ GET " full))
+    (send! (-> (HttpRequest/newBuilder (URI. full)) .build))))
+
 (defn- datastar-post
   "POST the way Datastar does it: signals as a JSON body."
   [url signals]
@@ -196,20 +214,24 @@
   []
   (let [port (start! 0)
         url  (str "http://localhost:" port "/quote")
-        sent (dissoc initial-signals :_prices :_loading)]
+        sent (dissoc initial-signals :_loading)]
     (println "Part 3: signals. Server on" (str "http://localhost:" port))
     (println "\nThe page declares these signals with data-signals:")
     (println " " (json/generate-string initial-signals))
-    (println "_prices starts with _, so the default filter /(^|\\.)_/ keeps it in the browser.")
+    (println "_loading starts with _, so the default filter /(^|\\.)_/ keeps it in the browser.")
+    (println "The computed _summary and _unit are private too: formatting for this tab only.")
     (println "\n── A medium oat latte, two of them")
     (print (datastar-get url (assoc sent :qty 2)))
-    (println "The browser merges {quote, error} into its signals; data-text and data-show update.")
+    (println "The browser morphs #quote. The price is HTML the server wrote; no signal holds it.")
     (println "\n── An espresso with oat milk (the static selects allow it)")
     (print (datastar-get url (assoc sent :drink "espresso" :size "double")))
-    (println "The browser estimate would still show a price. Only the server knows the rule.")
+    (println "Only the server knows which drinks take milk. The browser shows whatever #quote says.")
     (println "\n── The same signals as a POST body")
     (print (datastar-post url (assoc sent :drink "chai" :size "large" :milk "almond")))
     (println "Chai 450 + large 100 + almond 60 = 610 cents.")
+    (println "\n── A crafted request: the datastar parameter is not JSON")
+    (print (datastar-get-raw url "{not json"))
+    (println "read-signals gives {}, so the answer is a validation message, not a 500.")
     (println "\nTo try it in a browser: (lesson03.signals/start! 8080), then open http://localhost:8080/")
     (stop!)))
 

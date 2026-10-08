@@ -154,7 +154,9 @@
          lines)])
      [:p "Total: " (dollars (reduce + (map line-total lines)))]
      [:input#customer {:data-bind:customer "" :placeholder "Your name"}]
-     [:button#place-order {:data-on:click "@post('/orders')"} "Place order"]]))
+     ;; The server re-renders #cart after every cart command, so it can decide `disabled` itself.
+     [:button#place-order (cond-> {:data-on:click "@post('/orders')"} (empty? lines) (assoc :disabled ""))
+      "Place order"]]))
 
 (defn my-orders-view [state sid]
   [:section#my-orders

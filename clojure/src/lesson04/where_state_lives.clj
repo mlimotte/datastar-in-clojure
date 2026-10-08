@@ -136,6 +136,11 @@
   (str qty " × " (label size) (when milk (str " " (label milk))) " " (get-in menu [drink :name])
        " — " (dollars (* qty (price-cents line)))))
 
+(defn error-view
+  "The #draft-error element: the server's reason the draft was refused, or empty."
+  [message]
+  [:p#draft-error.error message])
+
 (defn cart-view [lines]
   [:div#cart
    [:h2 "Cart"]
@@ -161,7 +166,6 @@
                                                             :size     (name (:size choice))
                                                             :milk     (or (some-> (:milk choice) name) "")
                                                             :qty      1
-                                                            :error    ""
                                                             :_loading false})}
              [:h1 "Brew Board"]
              [:div#draft
@@ -175,7 +179,7 @@
               [:button {:data-on:click "@post('/cart/items')" :data-indicator:_loading ""
                         :data-attr:disabled "$_loading"}
                "Add to cart"]
-              [:p.error {:data-show "$error != ''" :data-text "$error"}]]
+              (error-view nil)]
              (cart-view (get carts sid))]]]))))
 
 (defn- sid-of [req] (get-in req [:cookies "sid" :value]))
@@ -191,11 +195,11 @@
   (let [sid   (sid-of req)
         draft (->draft (sse/read-signals req))]
     (if-let [err (if sid (draft-error draft (:sold-out @state)) "No session. Reload the page.")]
-      (sse/sse-response (sse/patch-signals {:error err} {}))
+      (sse/sse-response (sse/patch-elements (str (h/html (error-view err))) {}))
       (let [new-state (swap! state #(or (add-to-cart % sid draft) %))]
         (sse/sse-response
          (sse/patch-elements (str (h/html (cart-view (get-in new-state [:carts sid])))) {})
-         (sse/patch-signals {:error ""} {}))))))
+         (sse/patch-elements (str (h/html (error-view nil))) {}))))))
 
 (defn routes [{:keys [request-method uri] :as req}]
   (case [request-method uri]
