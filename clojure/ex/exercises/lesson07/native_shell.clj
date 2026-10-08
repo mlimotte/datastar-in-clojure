@@ -72,7 +72,7 @@
 (defn html [hiccup] (str (h/html hiccup)))
 
 (def default-draft
-  "The draft a browser starts with; matches the draft signals on the page."
+  "The draft a tab starts with; matches the draft signals on the page."
   {:drink :latte :size :small :milk :whole})
 
 (defn drink-options-view
@@ -101,8 +101,10 @@
   (str qty " × " (brew/label size) " " (when milk (str (brew/label milk) " "))
        (get-in brew/drinks [drink :name]) " — " (brew/dollars (brew/line-total line))))
 
-(defn- customer-view [state {:keys [sid shell?]}]
-  (let [lines (get-in state [:carts sid])]
+(defn- customer-view [state {:keys [sid tabid shell?]}]
+  (let [lines (get-in state [:carts sid])
+        {:keys [draft error]} (get-in state [:tabs tabid])
+        draft (or draft default-draft)]
     [:main#app
      ;; In the shell the native title bar shows the title.
      (when-not shell? [:h1 "Brew Board"])
@@ -110,14 +112,12 @@
       [:select#drink {:data-bind:drink "" :data-on:change "@post('/draft')"}
        (for [{:keys [id name]} brew/menu]
          [:option (cond-> {:value (clojure.core/name id)}
-                    (= id (get-in state [:drafts sid :drink] :latte)) (assoc :selected "")) name])]
-      (let [draft (get-in state [:drafts sid] default-draft)]
-        (drink-options-view (:drink draft) (:sold-out state) draft))
+                    (= id (:drink draft)) (assoc :selected "")) name])]
+      (drink-options-view (:drink draft) (:sold-out state) draft)
       [:input {:type "number" :min "1" :data-bind:qty ""}]
       [:button#add-to-cart {:data-on:click "@post('/cart/items')"} "Add to cart"]
-      ;; The client writes this text; the server renders it empty. data-ignore-morph keeps a
-      ;; whole-view re-render from resetting it to the server's markup.
-      [:p.error {:data-text "$_error" :data-ignore-morph ""}]]
+      ;; The error is server state: the tab's last failed command put it there.
+      (when error [:p.error error])]
      [:section#cart
       [:h2 "Cart"]
       (if (empty? lines)
@@ -159,7 +159,8 @@
 (defn page
   "A full page. The web gets a nav bar; the shell does not (it draws native navigation).
   The bridge listener turns the shell's {type: 'push-token'} message into $pushToken and a POST
-  that sends only that signal, written as one `&&` expression."
+  that sends only that signal, written as one `&&` expression. The tab id is seeded once per page
+  load on <body>, before the child that opens the stream."
   [{:keys [title shell? signals stream-url]} view]
   (str "<!DOCTYPE html>"
        (h/html
@@ -170,7 +171,8 @@
           [:title title]
           [:script (raw-string bridge-shim)]
           [:script {:type "module" :src datastar-src}]]
-         [:body (when signals {:data-signals (json/generate-string signals)})
+         [:body (when signals {:data-signals (json/generate-string signals)
+                               :data-signals:tabid__ifmissing "crypto.randomUUID()"})
           (when-not shell?
             [:nav.web-nav [:a {:href "/"} "Order"] " · " [:a {:href "/board"} "Board"]])
           [:div {:data-on:brew:native__window
@@ -216,7 +218,10 @@
                  (seq subs)))
              notes))))
 
-(defn stream-handler [hub !state viewer]
+(defn stream-handler
+  "Hold a GET open. A customer viewer has a :tabid and the :draft its tab sent: opening adopts the
+  draft for that tab, closing removes the tab (part 6's stream-lifecycle, inlined)."
+  [hub !state {:keys [sid tabid draft] :as viewer}]
   (fn [req]
     (let [id (random-uuid)]
       (hk/as-channel req
@@ -224,9 +229,15 @@
                                   (hk/send! ch {:status 200
                                                 :headers (assoc sse/sse-headers "Connection" "keep-alive")}
                                             false)
-                                  (subscribe! hub id #(hk/send! ch % false) viewer)
+                                  (when tabid
+                                    (swap! !state brew/handle-command
+                                           {:type :open-tab :sid sid :tabid tabid :stream id :draft draft}))
+                                  (subscribe! hub id #(hk/send! ch % false) (dissoc viewer :draft))
                                   (broadcast! hub @!state))
-                      :on-close (fn [_ch _status] (unsubscribe! hub id))}))))
+                      :on-close (fn [_ch _status]
+                                  (unsubscribe! hub id)
+                                  (when tabid
+                                    (swap! !state brew/handle-command {:type :close-tab :tabid tabid :stream id})))}))))
 
 (defn push!
   "Toy stand-in for APNs/FCM: a backgrounded app has no open stream, so a real server would send
@@ -271,23 +282,22 @@
 (def no-content {:status 204})
 
 (def draft-signals
-  {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :_error "" :pushToken ""})
+  {:drink "latte" :size "small" :milk "whole" :qty 1 :customer "" :pushToken ""})
+
+(defn signals->draft [signals]
+  (-> signals (select-keys [:drink :size :milk]) (update-vals signal->keyword)))
 
 (defn choose-draft
-  "Command: store this browser's draft, fitted to the drink, so the stream re-renders the
+  "Command: store this tab's draft, fitted to the drink, so the stream re-renders the
   drop-downs from it. Answer with the size/milk signals that no longer fit, or 204."
   [!state {:keys [sid] :as req}]
-  (let [draft (-> (sse/read-signals req) (select-keys [:drink :size :milk]) (update-vals signal->keyword))
-        fitted (get-in (swap! !state brew/handle-command {:type :choose-draft :sid sid :draft draft}) [:drafts sid])
+  (let [{:keys [tabid] :as signals} (sse/read-signals req)
+        draft (signals->draft signals)
+        fitted (get-in (swap! !state brew/handle-command {:type :choose-draft :sid sid :tabid tabid :draft draft})
+                       [:tabs tabid :draft])
         fix (into {} (for [k [:size :milk] :when (not= (k draft) (k fitted))]
                        [k (or (some-> (k fitted) name) "")]))]
     (if (seq fix) (sse/sse-response (sse/patch-signals fix)) no-content)))
-
-(defn add-item [!state {:keys [sid] :as req}]
-  (let [line (draft-line (sse/read-signals req))
-        err (brew/line-error @!state line)]
-    (when-not err (swap! !state brew/handle-command {:type :add-to-cart :sid sid :line line}))
-    (sse/sse-response (sse/patch-signals {:_error (or err "")}))))
 
 (defn order-page
   "A screen the shell pushes onto its navigation stack (see path-config)."
@@ -304,7 +314,10 @@
 (defn app [!state hub]
   (let [command (fn [f] {:handler (fn [req] (f req) no-content) :middleware [wrap-datastar-request]})
         apply! (fn [cmd] (swap! !state brew/handle-command cmd))
-        customer (fn [{:keys [sid] :as req}] {:kind :customer :sid sid :shell? (shell-request? req)})]
+        customer (fn [{:keys [sid] :as req}] {:kind :customer :sid sid :shell? (shell-request? req)})
+        ;; The stream GET carries the tab's signals: its id and the draft to adopt.
+        tab (fn [req] (let [{:keys [tabid] :as signals} (sse/read-signals req)]
+                        (assoc (customer req) :tabid tabid :draft (signals->draft signals))))]
     (ring/ring-handler
      (ring/router
       [["/" {:get (fn [req]
@@ -316,16 +329,21 @@
                          (sse/html-response
                           (page {:title "Barista board" :shell? (shell-request? req) :stream-url "/board/stream"}
                                 (view-for @!state {:kind :board}))))}]
-       ["/customer/stream" {:get (fn [req] ((stream-handler hub !state (customer req)) req))}]
+       ["/customer/stream" {:get (fn [req] ((stream-handler hub !state (tab req)) req))}]
        ["/board/stream" {:get (stream-handler hub !state {:kind :board})}]
        ["/draft" {:post {:handler (partial choose-draft !state) :middleware [wrap-datastar-request]}}]
-       ["/cart/items" {:post {:handler (partial add-item !state) :middleware [wrap-datastar-request]}}]
-       ["/cart/items/:idx" {:delete (command (fn [{:keys [sid path-params]}]
+       ["/cart/items" {:post (command (fn [{:keys [sid] :as req}]
+                                        (let [{:keys [tabid] :as signals} (sse/read-signals req)]
+                                          (apply! {:type :add-to-cart :sid sid :tabid tabid
+                                                   :line (draft-line signals)}))))}]
+       ["/cart/items/:idx" {:delete (command (fn [{:keys [sid path-params] :as req}]
                                                (apply! {:type :remove-from-cart :sid sid
+                                                        :tabid (:tabid (sse/read-signals req))
                                                         :idx (parse-long (:idx path-params))})))}]
        ["/orders" {:post (command (fn [{:keys [sid] :as req}]
-                                    (apply! {:type :place-order :sid sid
-                                             :customer (:customer (sse/read-signals req))})))}]
+                                    (let [{:keys [tabid customer]} (sse/read-signals req)]
+                                      (apply! {:type :place-order :sid sid :tabid tabid
+                                               :customer customer}))))}]
        ["/orders/:id" {:get (partial order-page !state)}]
        ["/orders/:id/advance" {:post (command (fn [{:keys [path-params]}]
                                                 (apply! {:type :advance :id (parse-long (:id path-params))})))}]
@@ -379,9 +397,12 @@
 
 (defn- watch-stream!
   "Open a stream; print a short line per view patch and the full text of each bridge call."
-  [client base path ua]
+  [client base path ua signals]
   (let [lines (-> client
-                  (.send (-> (HttpRequest/newBuilder (URI. (str base path))) (.header "User-Agent" ua) .GET .build)
+                  (.send (-> (HttpRequest/newBuilder
+                              (URI. (str base path "?datastar="
+                                         (java.net.URLEncoder/encode (json/generate-string signals) "UTF-8"))))
+                             (.header "User-Agent" ua) .GET .build)
                          (HttpResponse$BodyHandlers/ofLines))
                   .body)
         it (.iterator lines)]
@@ -425,10 +446,11 @@
                                                            {:ua shell-ua :signals {:pushToken "apns-ada-7f3c"}})))
     (say "   stored:" (get-in @!state [:devices (some-> @!state :devices keys first)]))
     (step "Ada's shell opens its stream and orders two lattes, one at a time.")
-    (let [{:keys [lines reader]} (watch-stream! ada base "/customer/stream" shell-ua)]
+    (let [tab "tab-ada-shell"
+          {:keys [lines reader]} (watch-stream! ada base "/customer/stream" shell-ua (assoc draft-signals :tabid tab))]
       (doseq [_ (range 2)]
-        (send-req ada base "POST" "/cart/items" {:ua shell-ua :signals {:drink "latte" :size "medium" :milk "oat" :qty 1}})
-        (send-req ada base "POST" "/orders" {:ua shell-ua :signals {:customer "Ada"}}))
+        (send-req ada base "POST" "/cart/items" {:ua shell-ua :signals {:tabid tab :drink "latte" :size "medium" :milk "oat" :qty 1}})
+        (send-req ada base "POST" "/orders" {:ua shell-ua :signals {:tabid tab :customer "Ada"}}))
       (step "Sam advances #1 twice. When it turns ready, Ada's stream carries the view AND a bridge call.")
       (dotimes [_ 2] (send-req sam base "POST" "/orders/1/advance" {}))
       (send-req sam base "POST" "/orders/2/advance" {})

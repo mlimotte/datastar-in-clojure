@@ -6,6 +6,7 @@
             [clojure.string :as string]
             [clojure.test :refer [deftest is testing]]
             [hiccup2.core :as h]
+            [exercises.lesson04.sse :as sse]
             [exercises.lesson04.where-state-lives :as w])
   (:import (java.io ByteArrayInputStream)))
 
@@ -41,6 +42,7 @@
       (is (< (string/index-of body "event: datastar-patch-elements")
              (string/index-of body "event: datastar-patch-signals")))
       (is (string/includes? body "data: elements <div id=\"drink-options\">"))
+      (is (string/includes? body "data: mode replace\n") "replace, so the new selects start fresh")
       (is (= {:size "single" :milk ""} (patched-signals body)))))
   (testing "only invalid signals are patched"
     (is (= {:milk "whole"}
@@ -79,4 +81,24 @@
           body (:body (w/handler req))]
       (is (string/includes? body "data: elements <div id=\"cart\">"))
       (is (string/includes? body "2 × Medium Oat Latte — $11.20"))
-      (is (= [{:drink :latte :size :medium :milk :oat :qty 2}] (get-in @w/state [:carts "abc"]))))))
+      (is (= [{:drink :latte :size :medium :milk :oat :qty 2}] (get-in @w/state [:carts "abc"])))))
+  (testing "a refused draft patches #draft-error as HTML, and no signals"
+    (let [req  {:request-method :post :uri "/cart/items"
+                :headers        {"cookie" "sid=abc"}
+                :body           (ByteArrayInputStream.
+                                 (.getBytes "{\"drink\":\"espresso\",\"size\":\"double\",\"milk\":\"oat\",\"qty\":1}"))}
+          body (:body (w/handler req))]
+      (is (string/includes? body "data: elements <p class=\"error\" id=\"draft-error\">Espresso does not take that milk.</p>"))
+      (is (not (string/includes? body "datastar-patch-signals")))))
+  (testing "a good draft clears #draft-error"
+    (let [req  {:request-method :post :uri "/cart/items"
+                :headers        {"cookie" "sid=abc"}
+                :body           (ByteArrayInputStream.
+                                 (.getBytes "{\"drink\":\"mocha\",\"size\":\"small\",\"milk\":\"whole\",\"qty\":1}"))}]
+      (is (string/includes? (:body (w/handler req)) "data: elements <p class=\"error\" id=\"draft-error\"></p>")))))
+
+(deftest read-signals-test
+  (testing "bad or non-object JSON gives {}"
+    (is (= {} (sse/read-signals {:request-method :get :query-params {"datastar" "{oops"}})))
+    (is (= {} (sse/read-signals {:request-method :post :body (ByteArrayInputStream. (.getBytes "[1]"))})))
+    (is (= {:a 1} (sse/read-signals {:request-method :get :query-params {"datastar" "{\"a\":1}"}})))))

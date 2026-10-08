@@ -10,10 +10,10 @@
 
 (defn- body-of [s] (ByteArrayInputStream. (.getBytes s "UTF-8")))
 
-(defn- patched-signals
-  "Pull the JSON out of the one patch-signals event in a response body."
+(defn- patched-html
+  "Pull the HTML out of the one patch-elements event in a response body."
   [body]
-  (-> (re-find #"data: signals (.*)\n" body) second (json/parse-string true)))
+  (second (re-find #"data: elements (.*)\n" body)))
 
 (deftest price-cents-test
   (is (= 560 (s/price-cents {:drink :latte :size :medium :milk :oat})))
@@ -34,27 +34,46 @@
                             :body           (body-of "{\"drink\":\"mocha\",\"user\":{\"name\":\"Ada\"}}")}))))
   (testing "nothing sent"
     (is (= {} (s/read-signals {:request-method :get :query-params {}})))
-    (is (= {} (s/read-signals {:request-method :post :body nil})))))
+    (is (= {} (s/read-signals {:request-method :post :body nil}))))
+  (testing "text that is not JSON gives {}, not an exception"
+    (is (= {} (s/read-signals {:request-method :get :query-params {"datastar" "{not json"}})))
+    (is (= {} (s/read-signals {:request-method :post :body (body-of "drink=latte")}))))
+  (testing "JSON that is not an object gives {}"
+    (is (= {} (s/read-signals {:request-method :get :query-params {"datastar" "[1,2]"}})))
+    (is (= {} (s/read-signals {:request-method :post :body (body-of "42")})))
+    (is (= {} (s/read-signals {:request-method :post :body (body-of "null")})))))
 
 (deftest quote-response-test
-  (testing "a valid draft gets price × qty and clears the error"
+  (testing "a valid draft gets price × qty, rendered as HTML in #quote"
     (let [{:keys [status headers body]} (s/quote-response {:drink "latte" :size "medium" :milk "oat" :qty 2})]
       (is (= 200 status))
       (is (= "text/event-stream" (get headers "Content-Type")))
-      (is (string/starts-with? body "event: datastar-patch-signals\n"))
-      (is (= {:quote 1120 :error ""} (patched-signals body)))))
-  (testing "an invalid draft gets an error and quote 0"
-    (is (= {:quote 0 :error "Espresso does not take that milk."}
-           (patched-signals (:body (s/quote-response {:drink "espresso" :size "double" :milk "oat" :qty 1}))))))
+      (is (string/starts-with? body "event: datastar-patch-elements\n"))
+      (is (= "<p id=\"quote\">Server price: <strong>$11.20</strong></p>" (patched-html body)))
+      (is (not (string/includes? body "datastar-patch-signals")) "no signals: the price is HTML")))
+  (testing "an invalid draft gets the reason in #quote"
+    (is (= "<p class=\"error\" id=\"quote\">Espresso does not take that milk.</p>"
+           (patched-html (:body (s/quote-response {:drink "espresso" :size "double" :milk "oat" :qty 1}))))))
   (testing "a milk-less drink with no milk is fine"
-    (is (= {:quote 350 :error ""}
-           (patched-signals (:body (s/quote-response {:drink "americano" :size "small" :milk "" :qty 1})))))))
+    (is (string/includes? (patched-html (:body (s/quote-response {:drink "americano" :size "small" :milk "" :qty 1})))
+                          "$3.50")))
+  (testing "no signals at all: the server still answers with a message"
+    (is (= "<p class=\"error\" id=\"quote\">Pick a drink.</p>"
+           (patched-html (:body (s/quote-response {})))))))
 
 (deftest handler-test
   (testing "GET /quote goes through wrap-params"
     (let [{:keys [body]} (s/handler {:request-method :get :uri "/quote"
                                      :query-string   "datastar=%7B%22drink%22%3A%22mocha%22%2C%22size%22%3A%22large%22%2C%22milk%22%3A%22whole%22%2C%22qty%22%3A1%7D"})]
-      (is (= {:quote 600 :error ""} (patched-signals body)))))
+      (is (string/includes? (patched-html body) "$6.00"))))
+  (testing "a crafted, malformed datastar parameter does not cause a 500"
+    (let [{:keys [status body]} (s/handler {:request-method :get :uri "/quote" :query-string "datastar=%7Bnot%20json"})]
+      (is (= 200 status))
+      (is (string/includes? (patched-html body) "Pick a drink."))))
   (testing "the page declares the signals before data-computed reads them"
     (let [body (:body (s/handler {:request-method :get :uri "/"}))]
-      (is (< (string/index-of body "data-signals=") (string/index-of body "data-computed:estimate="))))))
+      (is (< (string/index-of body "data-signals=") (string/index-of body "data-computed:_summary=")))))
+  (testing "the browser gets no prices: no price table, no price computation"
+    (let [body (:body (s/handler {:request-method :get :uri "/"}))]
+      (is (not (string/includes? body "_prices")))
+      (is (not (string/includes? body "450"))))))

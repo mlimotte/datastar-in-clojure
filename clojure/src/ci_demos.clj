@@ -8,6 +8,7 @@
             [lesson05.routes]
             [lesson06.live]
             [lesson07.native-shell]
+            [lesson08.field-guide]
             [brewboard.demo]))
 
 (defn -main [& _]
@@ -18,6 +19,7 @@
                  lesson05.routes/demo!
                  lesson06.live/demo!
                  lesson07.native-shell/demo!
+                 lesson08.field-guide/demo!
                  brewboard.demo/demo!]]
     (demo!))
   (shutdown-agents))

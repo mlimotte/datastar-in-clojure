@@ -4,3 +4,4 @@ _site/
 *.apkg
 .DS_Store
 .lk/
+tmp/

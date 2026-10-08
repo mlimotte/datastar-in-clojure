@@ -307,3 +307,53 @@ Exercise ids match `[\w-]+` (no `!` or `?`): the id `broadcast` marks `broadcast
   server-rendered HTML moves to the server.
 - Live streams open with `@get('…/stream', {retry: 'always'})`. User-facing validation errors are
   200 responses (Datastar patches nothing on a 4xx).
+
+## Revision 2026-10-08: practices adopted after comparing with a production Datastar app
+
+These override earlier sections. Background: `tmp/2026-10-08-thread-datastar-practices.md`.
+
+### R1. Per-tab state is keyed by a tab id, not the sid cookie (parts 6–7, capstone)
+- A cookie identifies a browser; every tab shares it. Per-customer state (cart, orders, push
+  device) stays keyed by `sid`. Per-tab state (the draft, the error message) is keyed by `tabid`.
+- Seed: `<body data-signals:tabid__ifmissing="crypto.randomUUID()">` (verified: `signals.ts`
+  reads the `ifmissing` mod; `engine.ts` applies the root, then `querySelectorAll('*')` in document
+  order, so body runs before a child `data-init`). Keep `data-init` that opens the stream on a
+  child element, never on `<body>` itself (hiccup sorts attributes: `data-init` < `data-signals`).
+  `crypto.randomUUID()` needs a secure context (https or localhost); say so once in prose.
+- `tabid` is a normal (non-`_`) signal, so it rides on every request automatically.
+- State shape: `:tabs {tabid {:sid … :draft {:drink :size :milk} :error "…"}}` replaces
+  `:drafts {sid …}`.
+- **Stream open adopts the tab's draft.** The stream GET carries the tab's current signals; the
+  handler stores `(fit-draft state signals)` as that tab's draft before the first render. So a
+  reconnect (tab hidden → stream closed → visible again) re-syncs server and client. `:on-close`
+  then removes `[:tabs tabid]`; nothing is lost because the next open re-adopts it.
+- Each subscriber's view fn closes over `[sid tabid]`; `view-for`/`customer-app` take both.
+
+### R2. Domain values are never derived in the browser (part 3, capstone)
+- Remove `_prices` and every client price computation (`data-computed` on a price/estimate,
+  `price-expression`). Prices are rendered by the server as HTML.
+- Part 3 still teaches `data-computed`, on a presentation-only value: e.g.
+  `data-computed:summary="$qty + ' × ' + $size + ' ' + $drink"` (moves/formats signal values,
+  derives nothing). Expressions may do UI bookkeeping (counts, flags, focus, formatting), never
+  business rules.
+- Part 3's `GET /quote` answers with **patch-elements** of `#quote` (server-rendered price or
+  error), not patch-signals. `patch-signals` remains taught for its legitimate job: the server
+  writing to a form-draft signal (part 4's size/milk reset).
+
+### R3. Errors are server state rendered as HTML (parts 3–7, capstone)
+- Request/response parts (3–5): a validation error is a 200 with patch-elements of an id'd
+  element (e.g. `#draft-error`), cleared by the next successful response patching it empty.
+- Live parts (6–7, capstone): a command that fails stores the message at `[:tabs tabid :error]`
+  and answers 204; the whole-view render draws it. The tab's next command clears it. No
+  `$_error`, no `data-ignore-morph` anywhere. (Posts may still name `data-ignore-morph` as the
+  tool for client-owned widgets such as a third-party editor.)
+
+### R4. `read-signals` never throws on bad input (every copy, and the part 3 exercise)
+- Unparseable JSON, or JSON that is not an object → `{}`. Exercise hint and tests cover both.
+
+### R5. Expressions are JavaScript: the escaping rule (part 5 post)
+- Hiccup's HTML escaping does not protect a Datastar expression: the browser decodes the
+  attribute, then Datastar evaluates the text as JS. Interpolate only server literals (integers,
+  fixed keywords), URL-encoded values, or signal references; never raw stored or request values.
+  Seed signals with cheshire. Inline `<script>` text escapes `</`. Show a bad example (a customer
+  name concatenated into an `@post` URL) and the fix.

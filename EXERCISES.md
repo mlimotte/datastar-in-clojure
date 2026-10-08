@@ -24,13 +24,13 @@ cd go && go test ./exercises/lessonNN/
 ## Part 3 · [Signals](site/posts/03-signals.html)
 
 - **`price-cents`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 3 lines): Add the drink's base price, the size delta, and the milk delta (no milk adds nothing).
-- **`read-signals`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 4 lines): Take the JSON text from the "datastar" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read.
-- **`quote-response`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 6 lines): Make a draft from the signals. If it has an error, patch {quote: 0, error: <message>}. Otherwise patch {quote: price × qty, error: ""}. Return a one-shot SSE response.
+- **`read-signals`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 6 lines): Take the JSON text from the "datastar" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read, when the text is not valid JSON, or when the JSON is not an object.
+- **`quote-response`** (Clojure, `clojure/ex/exercises/lesson03/signals.clj`, 7 lines): Make a draft from the signals. If draft-error finds a problem, render [:p#quote.error message]. Otherwise render [:p#quote "Server price: " [:strong total]] where total is price × qty in dollars. Return a one-shot SSE response with one patch-elements event.
 
 ## Part 4 · [When to use a signal](site/posts/04-where-state-lives.html)
 
 - **`drink-options-view`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 15 lines): Return hiccup for div#drink-options. It holds select#size (data-bind:size) with one option per size of the drink, and select#milk (data-bind:milk) with one option per milk, or [:p.muted "No milk"] when the drink takes no milk. Mark the chosen size and milk as selected. A sold-out milk is disabled and its label ends with " (sold out)".
-- **`drink-options-response`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 8 lines): Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view, then patch only the signals that changed (size, milk). A missing milk is sent as "" so the bound select keeps a string.
+- **`drink-options-response`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 9 lines): Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view in replace mode, then patch only the signals that changed (size, milk). A missing milk is sent as "" so the bound select keeps a string.
 - **`add-to-cart`** (Clojure, `clojure/ex/exercises/lesson04/where_state_lives.clj`, 2 lines): Return nil when draft-error finds a problem (use the state's sold-out set). Otherwise add the line {:drink :size :milk :qty} to the end of the cart for sid and return the new state.
 
 ## Part 5 · [Shaping the backend](site/posts/05-routes.html)
@@ -41,9 +41,9 @@ cd go && go test ./exercises/lessonNN/
 
 ## Part 6 · [One stream, many viewers](site/posts/06-live.html)
 
-- **`view-for`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 3 lines): Return the hiccup for <main id="app"> for this viewer: a customer sees the draft form, their own cart and only their own orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)
+- **`view-for`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 3 lines): Return the hiccup for <main id="app"> for this viewer: a customer tab sees its own draft and error, its browser's cart and only its browser's orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)
 - **`broadcast`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 9 lines): For every subscriber in the hub, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.
-- **`stream-lifecycle`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 5 lines): Make a fresh id for this stream. On open, subscribe send-fn with the viewer and send it the whole current view right away (a reconnect must get the view again too). On close, unsubscribe it.
+- **`stream-lifecycle`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 10 lines): Make a fresh id for this stream. On open: for a viewer with a :tabid, run an :open-tab command (sid, tabid, this stream's id, the draft); subscribe send-fn with the viewer (without :draft); send it the whole current view right away (a reconnect needs it too). On close: unsubscribe, then run :close-tab for that tab and this stream.
 
 ## Part 7 · [Replacing the React Native app](site/posts/07-native-shell.html)
 

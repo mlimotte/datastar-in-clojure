@@ -5,7 +5,9 @@
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [clojure.test :refer [deftest is testing]]
-            [exercises.lesson05.routes :as r]))
+            [hiccup2.core]
+            [exercises.lesson05.routes :as r]
+            [exercises.lesson05.sse :as sse]))
 
 (def latte {:drink :latte :size :medium :milk :oat :qty 1})
 
@@ -105,3 +107,39 @@
       (is (= :making (get-in @!state [:orders 1 :status])))
       (call app :post "/stock/oat/toggle")
       (is (= #{:oat} (:sold-out @!state))))))
+
+(deftest read-signals-test
+  (testing "bad or non-object JSON gives {}, so a crafted request can't cause a 500"
+    (is (= {} (sse/read-signals {:request-method :get :query-params {"datastar" "{oops"}})))
+    (is (= {} (sse/read-signals {:request-method :post :body (java.io.ByteArrayInputStream. (.getBytes "\"a string\""))})))
+    (is (= {} (sse/read-signals {:request-method :post :body nil}))))
+  (testing "a malformed command body is refused with a message, not a 500"
+    (let [app  (r/app (atom r/initial-state))
+          resp (app {:request-method :post :uri "/cart/items" :headers {"datastar-request" "true" "cookie" "sid=s1"}
+                     :body (java.io.ByteArrayInputStream. (.getBytes "not json"))})]
+      (is (= 200 (:status resp)))
+      (is (string/includes? (:body resp) "id=\"draft-error\">Pick a drink.")))))
+
+(deftest place-order-disabled-test
+  (testing "the server renders disabled on Place order while the cart is empty"
+    (let [html #(str (hiccup2.core/html %))]
+      (is (string/includes? (html (r/cart-view r/initial-state "s1")) "disabled=\"\" id=\"place-order\""))
+      (is (not (string/includes? (html (r/cart-view with-cart "s1")) "disabled"))))))
+
+(deftest drink-options-selected-test
+  (let [app (r/app (atom (assoc r/initial-state :sold-out #{:oat})))
+        get-options #(:body (call app :get "/drink-options" :signals %))]
+    (testing "latte/medium → chai: medium still fits, so no signal patch, and medium renders selected"
+      (let [body (get-options {:drink "chai" :size "medium" :milk "whole"})]
+        (is (string/includes? body "<option selected=\"\" value=\"medium\">"))
+        (is (not (string/includes? body "<option selected=\"\" value=\"large\">")))
+        (is (not (string/includes? body "datastar-patch-signals")))
+        (is (string/includes? body "data: mode replace\n"))))
+    (testing "a size that no longer fits: the fitted one is selected and patched"
+      (let [body (get-options {:drink "chai" :size "small" :milk "whole"})]
+        (is (string/includes? body "<option selected=\"\" value=\"medium\">"))
+        (is (string/includes? body "data: signals {\"size\":\"medium\"}"))))
+    (testing "a sold-out milk is replaced by the first in-stock one, which is selected"
+      (let [body (get-options {:drink "latte" :size "small" :milk "oat"})]
+        (is (string/includes? body "<option selected=\"\" value=\"whole\">"))
+        (is (string/includes? body "<option disabled=\"\" value=\"oat\">"))))))

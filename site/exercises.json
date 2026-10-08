@@ -57,16 +57,16 @@
  },
  {
   "id": "read-signals",
-  "hint": "Take the JSON text from the \"datastar\" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read.",
-  "lines": 4,
+  "hint": "Take the JSON text from the \"datastar\" query parameter for GET and DELETE, and from the request body for other methods. Parse it with keyword keys. Return {} when there is nothing to read, when the text is not valid JSON, or when the JSON is not an object.",
+  "lines": 6,
   "lang": "Clojure",
   "lesson": "03",
   "file": "clojure/ex/exercises/lesson03/signals.clj"
  },
  {
   "id": "quote-response",
-  "hint": "Make a draft from the signals. If it has an error, patch {quote: 0, error: <message>}. Otherwise patch {quote: price \u00d7 qty, error: \"\"}. Return a one-shot SSE response.",
-  "lines": 6,
+  "hint": "Make a draft from the signals. If draft-error finds a problem, render [:p#quote.error message]. Otherwise render [:p#quote \"Server price: \" [:strong total]] where total is price \u00d7 qty in dollars. Return a one-shot SSE response with one patch-elements event.",
+  "lines": 7,
   "lang": "Clojure",
   "lesson": "03",
   "file": "clojure/ex/exercises/lesson03/signals.clj"
@@ -81,8 +81,8 @@
  },
  {
   "id": "drink-options-response",
-  "hint": "Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view, then patch only the signals that changed (size, milk). A missing milk is sent as \"\" so the bound select keeps a string.",
-  "lines": 8,
+  "hint": "Read drink, size and milk from the signals. Find the valid choice. Send two events: first patch #drink-options with the view in replace mode, then patch only the signals that changed (size, milk). A missing milk is sent as \"\" so the bound select keeps a string.",
+  "lines": 9,
   "lang": "Clojure",
   "lesson": "04",
   "file": "clojure/ex/exercises/lesson04/where_state_lives.clj"
@@ -121,7 +121,7 @@
  },
  {
   "id": "view-for",
-  "hint": "Return the hiccup for <main id=\"app\"> for this viewer: a customer sees the draft form, their own cart and only their own orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)",
+  "hint": "Return the hiccup for <main id=\"app\"> for this viewer: a customer tab sees its own draft and error, its browser's cart and only its browser's orders; the board sees every order and the milk stock. (customer-view and board-view are already written.)",
   "lines": 3,
   "lang": "Clojure",
   "lesson": "06",
@@ -137,8 +137,8 @@
  },
  {
   "id": "stream-lifecycle",
-  "hint": "Make a fresh id for this stream. On open, subscribe send-fn with the viewer and send it the whole current view right away (a reconnect must get the view again too). On close, unsubscribe it.",
-  "lines": 5,
+  "hint": "Make a fresh id for this stream. On open: for a viewer with a :tabid, run an :open-tab command (sid, tabid, this stream's id, the draft); subscribe send-fn with the viewer (without :draft); send it the whole current view right away (a reconnect needs it too). On close: unsubscribe, then run :close-tab for that tab and this stream.",
+  "lines": 10,
   "lang": "Clojure",
   "lesson": "06",
   "file": "clojure/ex/exercises/lesson06/live.clj"

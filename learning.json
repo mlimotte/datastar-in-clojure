@@ -37,6 +37,11 @@
       "slug": "native-shell",
       "title": "Replacing the React Native app",
       "desc": "A thin native shell over the same routes, with a bridge"
+    },
+    {
+      "slug": "field-guide",
+      "title": "Field guide: practices and trade-offs",
+      "desc": "Advanced: the decision ladder, navigation, and the choices with real pros and cons"
     }
   ],
   "demos": {
