@@ -216,7 +216,7 @@
                   (not= size (:size choice)) (assoc :size (name (:size choice)))
                   (not= milk (:milk choice)) (assoc :milk (or (some-&gt; (:milk choice) name) "")))]
     (sse/sse-response
-     (sse/patch-elements (str (h/html (drink-options-view drink sold-out choice))) {})
+     (sse/patch-elements (str (h/html (drink-options-view drink sold-out choice))) {:mode :replace})
      (sse/patch-signals changed {}))))</code></pre>
 
   <p>The first event replaces <code>#drink-options</code> by id, with the chosen options marked
@@ -224,6 +224,20 @@
     are needed. The DOM shows the new selection, but the signals are what the next request sends,
     and a <code>$size</code> still saying <code>"medium"</code> would put a medium espresso in the
     cart.</p>
+
+  <p>Note <code>mode replace</code>. The default, <code>outer</code>, would morph the old selects
+    into the new ones, and the morph gets this case wrong. Options have no ids, so it pairs them by
+    position. It sets an option's <code>selected</code> <em>property</em> only when the
+    <code>selected</code> <em>attribute</em>'s presence differs between old and new
+    (<code>updateElementProp</code> in <code>patchElements.ts</code>), but choosing an option changes
+    only its property. Pick medium on a latte, then switch to chai: the page loaded with
+    <code>small</code> marked <code>selected</code>, chai's list marks <code>medium</code> (its first
+    option) <code>selected</code>, so the attribute is present at index 0 both times and nothing is
+    touched. The second option keeps its selected property, and it is now <em>large</em>. Medium
+    is still valid for chai, so no signal patch arrives to correct it: the screen says Large while
+    <code>$size</code> says medium, and the cart gets a medium. <code>replace</code> swaps in new
+    elements instead (<code>replaceWith</code>), and a fresh <code>data-bind</code> starts from the
+    signal. Part 6 meets the same morph rule from the other side.</p>
 
   <div id="predict-milk"></div>
 

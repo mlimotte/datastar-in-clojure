@@ -104,16 +104,17 @@
   no longer fit."
   [signals sold-out]
   ;; EXERCISE(drink-options-response): Read drink, size and milk from the signals. Find the
-  ;; valid choice. Send two events: first patch #drink-options with the view, then patch only
-  ;; the signals that changed (size, milk). A missing milk is sent as "" so the bound select
-  ;; keeps a string.
+  ;; valid choice. Send two events: first patch #drink-options with the view in replace mode,
+  ;; then patch only the signals that changed (size, milk). A missing milk is sent as "" so the
+  ;; bound select keeps a string.
   (let [{:keys [drink size milk]} (->draft signals)
         choice  (valid-choice drink sold-out {:size size :milk milk})
         changed (cond-> {}
                   (not= size (:size choice)) (assoc :size (name (:size choice)))
                   (not= milk (:milk choice)) (assoc :milk (or (some-> (:milk choice) name) "")))]
     (sse/sse-response
-     (sse/patch-elements (str (h/html (drink-options-view drink sold-out choice))) {})
+     ;; Replace, not morph: a morph keeps the user's selected option by position (see post 4).
+     (sse/patch-elements (str (h/html (drink-options-view drink sold-out choice))) {:mode :replace})
      (sse/patch-signals changed {})))
   ;; END EXERCISE
   )

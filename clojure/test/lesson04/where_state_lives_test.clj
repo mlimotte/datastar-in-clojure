@@ -39,6 +39,7 @@
       (is (< (string/index-of body "event: datastar-patch-elements")
              (string/index-of body "event: datastar-patch-signals")))
       (is (string/includes? body "data: elements <div id=\"drink-options\">"))
+      (is (string/includes? body "data: mode replace\n") "replace, so the new selects start fresh")
       (is (= {:size "single" :milk ""} (patched-signals body)))))
   (testing "only invalid signals are patched"
     (is (= {:milk "whole"}

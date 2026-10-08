@@ -106,7 +106,7 @@
     add({ ...base, drink: sc.to, sig: s1,
       wire: `(valid-choice :${sc.to} #{${sc.soldOut.map((m) => ":" + m).join(" ")}} {:size :${sc.from.size} :milk :${sc.from.milk}})\n→ {:size :${choice.size} :milk ${choice.milk ? ":" + choice.milk : "nil"}}\nchanged → {${changedTxt}}`,
       note: "The server keeps each value that is still allowed and in stock, and otherwise takes the first allowed one." });
-    add({ ...base, drink: sc.to, sig: s1, opts: elHtml, flash: true, wire: BREW.patchElements(elHtml), note: "Event 1: #drink-options, matched by id and morphed. The chosen options carry selected=\"\"." });
+    add({ ...base, drink: sc.to, sig: s1, opts: elHtml, flash: true, wire: BREW.patchElements(elHtml, { mode: "replace" }), note: "Event 1: #drink-options, matched by id and replaced (mode replace), so the new selects start fresh. The chosen options carry selected=\"\"." });
     const s2 = { ...s1, ...patch };
     add({ ...base, drink: sc.to, sig: s2, opts: elHtml, ch: Object.keys(patch), wire: BREW.patchSignals(sigJson),
       note: Object.keys(patch).length ? `Event 2: only the signals that no longer fit${"milk" in patch && patch.milk === "" ? ". No milk is \"\", not null: null would delete $milk." : "."}` : "Event 2: nothing needed changing, so the patch is {} and does nothing." });

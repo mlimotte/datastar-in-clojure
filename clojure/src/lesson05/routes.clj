@@ -125,18 +125,23 @@
 (defn html [hiccup] (str (h/html hiccup)))
 
 (defn drink-options-view
-  "The size and milk drop-downs for one drink. The option lists are always server HTML."
-  [drink sold-out]
+  "The size and milk drop-downs for one drink. The option lists are always server HTML.
+  The chosen size and milk render as selected: options have no ids, so the morph pairs them by
+  position, and without selected a shorter list can show a different option than the signal holds."
+  [drink sold-out {:keys [size milk]}]
   (let [{:keys [sizes milks]} (drinks drink)]
     [:div#drink-options
      [:select#size {:data-bind:size ""}
-      (for [s sizes] [:option {:value (name s)} (str (label s) " +" (dollars (size-delta s)))])]
+      (for [s sizes]
+        [:option (cond-> {:value (name s)} (= s size) (assoc :selected ""))
+         (str (label s) " +" (dollars (size-delta s)))])]
      (if (seq milks)
        [:select#milk {:data-bind:milk ""}
         (for [m milks]
-          (if (sold-out m)
-            [:option {:value (name m) :disabled ""} (str (label m) " (sold out)")]
-            [:option {:value (name m)} (label m)]))]
+          [:option (cond-> {:value (name m)}
+                     (= m milk)   (assoc :selected "")
+                     (sold-out m) (assoc :disabled ""))
+           (cond-> (label m) (sold-out m) (str " (sold out)"))])]
        [:p.muted "No milk"])]))
 
 (defn cart-view [state sid]
@@ -171,7 +176,7 @@
                                                          :qty 1 :customer ""})}
     [:select#drink {:data-bind:drink "" :data-on:change "@get('/drink-options')"}
      (for [{:keys [id name]} menu] [:option {:value (clojure.core/name id)} name])]
-    (drink-options-view :latte (:sold-out state))
+    (drink-options-view :latte (:sold-out state) {:size :small :milk :whole})
     [:input {:type "number" :min "1" :data-bind:qty ""}]
     [:button#add-to-cart {:data-on:click "@post('/cart/items')"} "Add to cart"]
     [:p#draft-error]]
@@ -267,16 +272,19 @@
   "Query: re-render the drop-downs for $drink and fix $size/$milk if they're now invalid."
   [!state req]
   (let [{:keys [drink size milk]} (sse/read-signals req)
-        drink (or (drinks (signal->keyword drink)) (drinks :latte))
-        sold-out (:sold-out @!state)
+        drink       (or (drinks (signal->keyword drink)) (drinks :latte))
+        sold-out    (:sold-out @!state)
         valid-milks (remove sold-out (:milks drink))
-        fix (cond-> {}
-              (not (some #{(signal->keyword size)} (:sizes drink)))
-              (assoc :size (name (first (:sizes drink))))
-              (not (some #{(signal->keyword milk)} valid-milks))
-              (assoc :milk (or (some-> (first valid-milks) name) "")))]
+        size        (signal->keyword size)
+        milk        (signal->keyword milk)
+        choice      {:size (if (some #{size} (:sizes drink)) size (first (:sizes drink)))
+                     :milk (if (some #{milk} valid-milks) milk (first valid-milks))}
+        fix         (cond-> {}
+                      (not= size (:size choice)) (assoc :size (name (:size choice)))
+                      (not= milk (:milk choice)) (assoc :milk (or (some-> (:milk choice) name) "")))]
     (apply sse/sse-response
-           (sse/patch-elements (html (drink-options-view (:id drink) sold-out)))
+           ;; Replace, not morph: a morph keeps the user's selected option by position (post 4).
+           (sse/patch-elements (html (drink-options-view (:id drink) sold-out choice)) {:mode "replace"})
            (when (seq fix) [(sse/patch-signals fix)]))))
 
 (defn add-item [!state {:keys [sid] :as req}]

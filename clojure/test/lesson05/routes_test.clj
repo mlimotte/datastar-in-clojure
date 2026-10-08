@@ -122,3 +122,21 @@
     (let [html #(str (hiccup2.core/html %))]
       (is (string/includes? (html (r/cart-view r/initial-state "s1")) "disabled=\"\" id=\"place-order\""))
       (is (not (string/includes? (html (r/cart-view with-cart "s1")) "disabled"))))))
+
+(deftest drink-options-selected-test
+  (let [app (r/app (atom (assoc r/initial-state :sold-out #{:oat})))
+        get-options #(:body (call app :get "/drink-options" :signals %))]
+    (testing "latte/medium → chai: medium still fits, so no signal patch, and medium renders selected"
+      (let [body (get-options {:drink "chai" :size "medium" :milk "whole"})]
+        (is (string/includes? body "<option selected=\"\" value=\"medium\">"))
+        (is (not (string/includes? body "<option selected=\"\" value=\"large\">")))
+        (is (not (string/includes? body "datastar-patch-signals")))
+        (is (string/includes? body "data: mode replace\n"))))
+    (testing "a size that no longer fits: the fitted one is selected and patched"
+      (let [body (get-options {:drink "chai" :size "small" :milk "whole"})]
+        (is (string/includes? body "<option selected=\"\" value=\"medium\">"))
+        (is (string/includes? body "data: signals {\"size\":\"medium\"}"))))
+    (testing "a sold-out milk is replaced by the first in-stock one, which is selected"
+      (let [body (get-options {:drink "latte" :size "small" :milk "oat"})]
+        (is (string/includes? body "<option selected=\"\" value=\"whole\">"))
+        (is (string/includes? body "<option disabled=\"\" value=\"oat\">"))))))
