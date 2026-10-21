@@ -14,4 +14,7 @@
          :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
   ;; REPL on the exercise track: clj -A:ex-repl  (-A:ex would run :ex's main-opts, the test runner)
-  :ex-repl {:extra-paths ["ex"]}}}
+  :ex-repl {:extra-paths ["ex"]}
+  ;; IDE / REPL with the exercise track and the reference tests: clj -A:dev
+  ;; (:test and :ex carry :main-opts for CI, which -A warns about)
+  :dev {:extra-paths ["ex" "test"]}}}

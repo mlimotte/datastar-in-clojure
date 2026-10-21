@@ -23,6 +23,8 @@ Run the demos from `clojure/`. Each lesson also has `(start! 8080)` / `(stop!)` 
 **Exercises** live in `clojure/ex/exercises/lessonNN/`. REPL: `cd clojure && clj -A:ex-repl`, then
 `(require 'exercises.lesson01.hypermedia-test :reload-all)` and
 `(clojure.test/run-tests 'exercises.lesson01.hypermedia-test)`. Or from the project root: `lk test 01`.
+In an IDE (e.g. IntelliJ/Cursive), open `clojure/deps.edn` as the project and start the REPL with
+`-A:dev`, which puts both the exercise track (`ex/`) and the reference tests (`test/`) on the classpath.
 
 **Capstone:** `cd clojure && clojure -M -m brewboard.main`, then open
 http://localhost:8080/ (customer) and http://localhost:8080/board (barista) side by side.
