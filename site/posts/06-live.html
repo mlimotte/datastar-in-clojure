@@ -1,4 +1,31 @@
 <style>
+  #seq-stream .sq { display: block; width: 100%; min-width: 720px; height: auto; }
+  #seq-stream .sq-band-teal { fill: var(--teal-soft); }
+  #seq-stream .sq-band-violet { fill: var(--violet-soft); }
+  #seq-stream .sq-band-t { font: 600 11px var(--sans); text-anchor: middle; letter-spacing: .04em; }
+  #seq-stream .sq-teal-t { fill: var(--teal); }
+  #seq-stream .sq-violet-t { fill: var(--violet); }
+  #seq-stream .sq-box { fill: var(--bg-raised); stroke: var(--ink-faint); stroke-width: 1.2; }
+  #seq-stream .sq-box-teal { stroke: var(--teal); }
+  #seq-stream .sq-box-violet { stroke: var(--violet); }
+  #seq-stream .sq-name { font: 600 12px var(--mono); text-anchor: middle; fill: var(--ink); }
+  #seq-stream .sq-life { stroke: var(--rule); stroke-width: 1.5; stroke-dasharray: 4 4; }
+  #seq-stream .sq-phase { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 4; }
+  #seq-stream .sq-call { stroke: var(--ink-soft); stroke-width: 1.4; }
+  #seq-stream .sq-ret { stroke: var(--ink-faint); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  #seq-stream .sq-send { stroke: var(--accent); stroke-width: 2; }
+  #seq-stream .sq-bad { stroke: var(--bad); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  #seq-stream .sq-ah-f { fill: var(--ink-soft); }
+  #seq-stream .sq-ah-send-f { fill: var(--accent); }
+  #seq-stream .sq-ah-bad-f { fill: var(--bad); }
+  #seq-stream .sq-label, #seq-stream .sq-sub, #seq-stream .sq-note, #seq-stream .sq-phase-t {
+    paint-order: stroke; stroke: var(--bg-raised); stroke-width: 5px; stroke-linejoin: round; }
+  #seq-stream .sq-label { font: 11.5px var(--mono); text-anchor: middle; fill: var(--ink); }
+  #seq-stream .sq-send-t { fill: var(--accent); font-weight: 600; }
+  #seq-stream .sq-sub { font: 10.5px var(--mono); text-anchor: middle; fill: var(--teal); }
+  #seq-stream .sq-note { font: italic 11.5px var(--sans); fill: var(--ink-faint); }
+  #seq-stream .sq-phase-t { font: 600 11px var(--sans); fill: var(--ink-soft); letter-spacing: .03em; }
+
   .mo-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 640px) { .mo-cols { grid-template-columns: 1fr; } }
   .mo-col h4 { margin: 0 0 .4rem; font: 600 .78rem/1.2 var(--sans); color: var(--ink-soft); text-transform: uppercase; letter-spacing: .06em; }
@@ -63,7 +90,27 @@ for each subscriber s
   <h2>Holding a stream open in http-kit</h2>
 
   <p>Parts 1–5 returned one-shot responses that Datastar read to EOF. A held-open stream needs a body
-    that doesn't end, which in http-kit means <code>as-channel</code>:</p>
+    that doesn't end, which in http-kit means <code>as-channel</code>.</p>
+
+  <div class="aside"><p><strong>The <code>as-channel</code> contract.</strong> Part 2 used it
+    without spelling it out.</p>
+    <ul>
+      <li><b>The handler returns before the response does.</b> <code>(hk/as-channel req
+        opts)</code> returns <code>{:body ch}</code>. http-kit sends nothing until your code calls
+        <code>send!</code> on <code>ch</code>.</li>
+      <li><b><code>:on-open (fn [ch])</code></b> runs when the channel is ready for
+        <code>send!</code>. Keep <code>ch</code> (or a function that closes over it) and return.</li>
+      <li><b><code>(hk/send! ch data close?)</code></b> writes to the client. The first call can be a
+        map with <code>:status</code> and <code>:headers</code>. Later calls send body only, and
+        http-kit strips <code>:status</code> and <code>:headers</code> from them. On an HTTP channel
+        <code>close?</code> defaults to <b>true</b>, so a streaming response passes
+        <code>false</code> on every call. <code>send!</code> returns <code>false</code> if the
+        channel is already closed.</li>
+      <li><b>No Ring middleware runs on what you send.</b> That is why the SSE headers are set by
+        hand here.</li>
+      <li><b><code>:on-close (fn [ch status])</code></b> runs at most once, when either side closes
+        the channel. Do your clean-up here.</li>
+    </ul></div>
 
 <pre><code class="language-clojure">(hk/as-channel req
   {:on-open  (fn [ch]
@@ -79,7 +126,7 @@ for each subscriber s
                    (swap! !state handle-command {:type :open-tab :sid sid :tabid tabid
                                                  :stream id :draft draft}))
                  (subscribe! hub id send-fn (dissoc viewer :draft)) ;; :last starts nil…
-                 (broadcast! hub @!state))              ;; …so this sends the whole view now
+                 (broadcast! hub !state))               ;; …so this sends the whole view now
      :on-close (fn []
                  (unsubscribe! hub id)
                  (when tabid
@@ -89,8 +136,40 @@ for each subscriber s
     http-kit, so the tests drive it with a <code>send-fn</code> that conj's onto an atom. The tab
     parts are explained below.</p>
 
-  <p>The first <code>send!</code> carries the status and headers; every <code>send!</code> passes
-    <code>close?</code> false. http-kit is non-blocking, so an idle stream holds a socket, not a
+  <p>The two <code>:on-open</code>s belong to different layers. http-kit's gets the channel
+    <code>ch</code>; the lifecycle's gets a <code>send-fn</code>. <code>stream-handler</code> is the
+    shim between them: it sends the headers, wraps <code>ch</code> in a closure, and passes the
+    closure on. The figure follows one customer stream through both layers.</p>
+
+  <div class="viz" id="seq-stream">
+  <div class="viz-head"><span class="viz-title">One stream, from GET to close</span>
+    <span class="viz-sub">who calls whom: the adapter on the left, the lifecycle on the right</span></div>
+  <div class="viz-stage">
+  <svg class="sq" viewBox="0 0 860 922" width="860" role="img"
+       aria-labelledby="sq-title sq-desc">
+    <title id="sq-title">One stream, from GET to close</title>
+    <desc id="sq-desc">Sequence diagram. The browser's GET reaches http-kit, which calls the handler. The handler
+      calls stream-lifecycle, which returns two callbacks, then returns as-channel's {:body ch} before anything is
+      sent. When the channel opens, stream-handler sends the headers and calls the lifecycle's on-open with a
+      send-fn that wraps the channel. on-open adopts the tab's draft, subscribes send-fn to the hub, and
+      broadcasts, so the hub sends the whole view through send-fn. Later, any command changes the state, the watch
+      broadcasts, and the hub sends a new view through the same send-fn. When the connection closes, http-kit calls
+      on-close, which unsubscribes and runs :close-tab.</desc>
+    <defs><marker id="sq-ah" viewBox="0 0 10 10" refX="1" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path class="sq-ah-f" d="M0,0 L10,5 L0,10 z"/></marker><marker id="sq-ah-send" viewBox="0 0 10 10" refX="1" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path class="sq-ah-send-f" d="M0,0 L10,5 L0,10 z"/></marker><marker id="sq-ah-bad" viewBox="0 0 10 10" refX="1" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path class="sq-ah-bad-f" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+    <rect class="sq-band-teal" x="151" y="6" width="274" height="78" rx="8"/><text class="sq-band-t sq-teal-t" x="288.0" y="22">knows http-kit</text><rect class="sq-band-violet" x="435" y="6" width="416" height="78" rx="8"/><text class="sq-band-t sq-violet-t" x="643.0" y="22">knows only the hub and the state</text><line class="sq-life" x1="75" x2="75" y1="74" y2="916"/><rect class="sq-box " x="13" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="75" y="60">Browser</text><line class="sq-life" x1="217" x2="217" y1="74" y2="916"/><rect class="sq-box sq-box-teal" x="155" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="217" y="60">http-kit</text><line class="sq-life" x1="359" x2="359" y1="74" y2="916"/><rect class="sq-box sq-box-teal" x="297" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="359" y="60">stream-handler</text><line class="sq-life" x1="501" x2="501" y1="74" y2="916"/><rect class="sq-box sq-box-violet" x="439" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="501" y="60">stream-lifecycle</text><line class="sq-life" x1="643" x2="643" y1="74" y2="916"/><rect class="sq-box sq-box-violet" x="581" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="643" y="60">hub</text><line class="sq-life" x1="785" x2="785" y1="74" y2="916"/><rect class="sq-box sq-box-violet" x="723" y="36" width="124" height="38" rx="6"/><text class="sq-name" x="785" y="60">!state</text>
+    <line class="sq-phase" x1="8" x2="852" y1="126" y2="126"/><text class="sq-phase-t" x="10" y="120">1 · request: the handler runs</text><line class="sq-call" x1="78" x2="208" y1="154" y2="154" marker-end="url(#sq-ah)"/><text class="sq-label" x="146.0" y="148">GET /customer/stream</text><line class="sq-call" x1="220" x2="350" y1="186" y2="186" marker-end="url(#sq-ah)"/><text class="sq-label" x="288.0" y="180">(handler req)</text><line class="sq-call" x1="362" x2="492" y1="218" y2="218" marker-end="url(#sq-ah)"/><text class="sq-label" x="430.0" y="212">(stream-lifecycle …)</text><line class="sq-ret" x1="498" x2="368" y1="250" y2="250" marker-end="url(#sq-ah)"/><text class="sq-label" x="430.0" y="244">{:on-open :on-close}</text><line class="sq-ret" x1="356" x2="226" y1="282" y2="282" marker-end="url(#sq-ah)"/><text class="sq-label" x="288.0" y="276">{:body ch}</text><text class="sq-note" x="167" y="306">the handler has returned; nothing is sent yet</text><line class="sq-phase" x1="8" x2="852" y1="342" y2="342"/><text class="sq-phase-t" x="10" y="336">2 · :on-open: the stream starts</text><line class="sq-call" x1="220" x2="350" y1="370" y2="370" marker-end="url(#sq-ah)"/><text class="sq-label" x="288.0" y="364">:on-open ch</text><line class="sq-call" x1="356" x2="84" y1="402" y2="402" marker-end="url(#sq-ah)"/><text class="sq-label" x="217.0" y="396">status 200 + SSE headers</text><line class="sq-call" x1="362" x2="492" y1="434" y2="434" marker-end="url(#sq-ah)"/><text class="sq-label" x="430.0" y="428">(on-open send-fn)</text><text class="sq-sub" x="430.0" y="450">send-fn = #(hk/send! ch % false)</text><line class="sq-call" x1="504" x2="776" y1="482" y2="482" marker-end="url(#sq-ah)"/><text class="sq-label" x="643.0" y="476">swap! :open-tab</text><line class="sq-call" x1="504" x2="634" y1="514" y2="514" marker-end="url(#sq-ah)"/><text class="sq-label" x="572.0" y="508">subscribe! id send-fn</text><line class="sq-call" x1="504" x2="634" y1="546" y2="546" marker-end="url(#sq-ah)"/><text class="sq-label" x="572.0" y="540">broadcast! hub !state</text><line class="sq-send" x1="640" x2="84" y1="578" y2="578" marker-end="url(#sq-ah-send)"/><text class="sq-label sq-send-t" x="359.0" y="572">send-fn → whole #app view</text><line class="sq-phase" x1="8" x2="852" y1="624" y2="624"/><text class="sq-phase-t" x="10" y="618">3 · later: a command from any viewer</text><line class="sq-call" x1="782" x2="652" y1="652" y2="652" marker-end="url(#sq-ah)"/><text class="sq-label" x="714.0" y="646">watch → broadcast!</text><line class="sq-send" x1="640" x2="84" y1="684" y2="684" marker-end="url(#sq-ah-send)"/><text class="sq-label sq-send-t" x="359.0" y="678">send-fn → new view, if it changed</text><line class="sq-phase" x1="8" x2="852" y1="730" y2="730"/><text class="sq-phase-t" x="10" y="724">4 · :on-close: the stream ends</text><line class="sq-bad" x1="78" x2="208" y1="758" y2="758" marker-end="url(#sq-ah-bad)"/><text class="sq-label" x="146.0" y="752">connection closes</text><line class="sq-call" x1="220" x2="350" y1="790" y2="790" marker-end="url(#sq-ah)"/><text class="sq-label" x="288.0" y="784">:on-close ch status</text><line class="sq-call" x1="362" x2="492" y1="822" y2="822" marker-end="url(#sq-ah)"/><text class="sq-label" x="430.0" y="816">(on-close)</text><line class="sq-call" x1="504" x2="634" y1="854" y2="854" marker-end="url(#sq-ah)"/><text class="sq-label" x="572.0" y="848">unsubscribe! id</text><line class="sq-call" x1="504" x2="776" y1="886" y2="886" marker-end="url(#sq-ah)"/><text class="sq-label" x="643.0" y="880">swap! :close-tab</text>
+  </svg>
+  </div>
+  </div>
+
+  <p class="caption">Solid arrows are calls; dashed arrows are return values. The orange arrows are
+    the only path from the hub to this browser: the <code>send-fn</code> closure, which holds
+    <code>ch</code>. Steps 1 and 2 run once per stream. Step 3 runs on the thread of whatever command
+    changed the state. <code>:open-tab</code> runs before <code>subscribe!</code>, so its watch does
+    not reach this stream; the <code>broadcast!</code> after <code>subscribe!</code> sends the first
+    view.</p>
+
+  <p>http-kit is non-blocking, so an idle stream holds a socket, not a
     thread. Check that your server tells you when a viewer leaves: on http-kit 2.8.1,
     <code>:on-close</code> never fired when an SSE client disconnected, so the hub kept rendering for
     closed tabs. The course pins 2.9.0-beta4, where it fires. <code>on-open</code> sends the whole
@@ -98,22 +177,43 @@ for each subscriber s
 
   <p>The hub is an atom of subscribers plus a watch on the state atom:</p>
 
-<pre><code class="language-clojure">(defn broadcast! [hub state]
+<pre><code class="language-clojure">(defn broadcast! [hub !state]
   (locking hub
-    (into []
-          (keep (fn [[id {:keys [send-fn viewer last]}]]
-                  (let [view (html (view-for state viewer))]
-                    (when (not= view last)
-                      (send-fn (sse/patch-elements view))
-                      (swap! hub assoc-in [id :last] view)
-                      id))))
-          @hub)))
+    (let [state @!state]                     ;; read inside the lock: see below
+      (into []
+            (keep (fn [[id {:keys [send-fn viewer last]}]]
+                    (let [view (html (view-for state viewer))]
+                      (when (not= view last)
+                        (send-fn (sse/patch-elements view))
+                        (swap! hub assoc-in [id :last] view)
+                        id))))
+            @hub))))
 
-(add-watch !state ::broadcast (fn [_ _ old new] (when (not= old new) (broadcast! hub new))))</code></pre>
+(add-watch !state ::broadcast (fn [_ _ old new] (when (not= old new) (broadcast! hub !state))))</code></pre>
+  <p class="caption"><a href="https://clojuredocs.org/clojure.core/add-watch"><code>add-watch</code></a>
+    calls its function with the old and new value after every change to <code>!state</code>, on the
+    thread that made the change.
+    <a href="https://clojuredocs.org/clojure.core/locking"><code>locking</code></a> makes broadcasts
+    run one at a time, so two commands that arrive together cannot interleave writes to a stream or
+    race on <code>:last</code>. One at a time is not the same as in order. If command A changes the
+    state and then command B changes it, B's thread can take the lock first and send the newer view.
+    If A's broadcast then rendered the <code>new</code> value its watch received, it would send the
+    older view, and the page would stay stale until the next change. So <code>broadcast!</code>
+    ignores that value and reads <code>@!state</code> inside the lock. A late broadcast sees the
+    newest state, renders what was already sent, and sends nothing.</p>
 
   <p>The <code>:last</code> check matters more than it looks. Most changes touch one person's view:
     when Grace adds a mocha to her cart, Ada's page renders to the same string, so nothing is sent to
     Ada. The figure shows who gets an event for each command.</p>
+
+  <div class="aside"><p><strong>Yes, this renders every view on every change.</strong> Ada gets no
+    event, but her page is still rendered so that the server can compare it. The cost is subscribers ×
+    changes × render time. For a coffee shop that is nothing. For a large page with hundreds of
+    thousands of viewers it is real work. There are ways to reduce it: render once for viewers who see
+    the same thing, render only the views that a change can affect, and combine a burst of changes
+    into one broadcast. This lesson keeps the simple version and does not build those.
+    <a href="#whole-view-cost">"Sending the whole view on every change is too much"</a>, below,
+    comes back to the bytes and the CPU.</p></div>
 
   <div id="viz-fanout"></div>
 
@@ -210,7 +310,7 @@ for each subscriber s
     which makes the morph skip an element, is for widgets the client really owns, such as a
     third-party editor.)</p>
 
-  <h2>"Sending the whole view on every change is too much"</h2>
+  <h2 id="whole-view-cost">"Sending the whole view on every change is too much"</h2>
 
   <p><b>Bytes.</b> A barista view with 12 orders is 2,613 bytes as an SSE event, and the next render
     is almost all identical. Gzipped on its own, an event is about 540 bytes. But a long-lived stream

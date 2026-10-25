@@ -129,8 +129,8 @@
  },
  {
   "id": "broadcast",
-  "hint": "For every subscriber in the hub, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.",
-  "lines": 9,
+  "hint": "Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.",
+  "lines": 10,
   "lang": "Clojure",
   "lesson": "06",
   "file": "clojure/ex/exercises/lesson06/live.clj"

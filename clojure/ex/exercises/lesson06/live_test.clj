@@ -48,24 +48,32 @@
 
 (deftest broadcast-test
   (let [hub (l/make-hub)
+        !state (atom l/initial-state)
         [ada-sent ada-fn] (recorder)
         [sam-sent sam-fn] (recorder)]
     (l/subscribe! hub :ada ada-fn {:kind :customer :sid "ada"})
     (l/subscribe! hub :sam sam-fn {:kind :board})
     (testing "a new subscriber gets the whole view as one patch-elements event"
-      (is (= #{:ada :sam} (set (l/broadcast! hub l/initial-state))))
+      (is (= #{:ada :sam} (set (l/broadcast! hub !state))))
       (is (= 1 (count @ada-sent)))
       (is (string/starts-with? (first @ada-sent) "event: datastar-patch-elements\ndata: elements <main id=\"app\">")))
     (testing "an unchanged view is not sent again"
-      (is (= [] (l/broadcast! hub l/initial-state)))
+      (is (= [] (l/broadcast! hub !state)))
       (is (= 1 (count @ada-sent) (count @sam-sent))))
     (testing "only viewers whose view changed are sent to"
-      (is (= [:ada] (l/broadcast! hub (assoc-in l/initial-state [:carts "ada"] [latte]))))
+      (swap! !state assoc-in [:carts "ada"] [latte])
+      (is (= [:ada] (l/broadcast! hub !state)))
       (is (= 2 (count @ada-sent)))
       (is (= 1 (count @sam-sent))))
     (testing ":last remembers what was sent"
       (is (= (render (assoc-in l/initial-state [:carts "ada"] [latte]) {:kind :customer :sid "ada"})
-             (get-in @hub [:ada :last]))))))
+             (get-in @hub [:ada :last]))))
+    (testing "a broadcast that runs late sends the current state, not an older one"
+      (swap! !state assoc-in [:carts "ada"] [])
+      (swap! !state assoc-in [:carts "ada"] [latte latte])
+      (is (= [:ada] (l/broadcast! hub !state)))
+      (is (= [] (l/broadcast! hub !state)))
+      (is (= (render @!state {:kind :customer :sid "ada"}) (get-in @hub [:ada :last]))))))
 
 (deftest tab-commands-test
   (let [opened (l/handle-command l/initial-state {:type :open-tab :sid "ada" :tabid "t1" :stream 1

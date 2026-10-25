@@ -258,21 +258,24 @@
 (defn unsubscribe! [hub id] (swap! hub dissoc id))
 
 (defn broadcast!
-  "Render each subscriber's view of state. Send it as one patch-elements event only when the HTML
-  differs from what that subscriber was last sent. Returns the ids that were sent to."
-  [hub state]
-  ;; EXERCISE(broadcast): For every subscriber in the hub, render (view-for state viewer) to an
-  ;; HTML string. If it differs from the subscriber's :last, call its send-fn with a
-  ;; patch-elements event of that HTML and record it as :last. Return the ids that were sent to.
+  "Render each subscriber's view of the current state. Send it as one patch-elements event only
+  when the HTML differs from what that subscriber was last sent. Returns the ids that were sent to.
+  It reads !state inside the lock, so a broadcast that runs late cannot send an older state."
+  [hub !state]
+  ;; EXERCISE(broadcast): Lock the hub, then read the current state from !state. For every
+  ;; subscriber, render (view-for state viewer) to an HTML string. If it differs from the
+  ;; subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it
+  ;; as :last. Return the ids that were sent to.
   (locking hub
-    (into []
-          (keep (fn [[id {:keys [send-fn viewer last]}]]
-                  (let [view (html (view-for state viewer))]
-                    (when (not= view last)
-                      (send-fn (sse/patch-elements view))
-                      (swap! hub assoc-in [id :last] view)
-                      id))))
-          @hub))
+    (let [state @!state]
+      (into []
+            (keep (fn [[id {:keys [send-fn viewer last]}]]
+                    (let [view (html (view-for state viewer))]
+                      (when (not= view last)
+                        (send-fn (sse/patch-elements view))
+                        (swap! hub assoc-in [id :last] view)
+                        id))))
+            @hub)))
   ;; END EXERCISE
   )
 
@@ -290,7 +293,7 @@
                  (when tabid
                    (swap! !state handle-command {:type :open-tab :sid sid :tabid tabid :stream id :draft draft}))
                  (subscribe! hub id send-fn (dissoc viewer :draft))
-                 (broadcast! hub @!state))
+                 (broadcast! hub !state))
      :on-close (fn []
                  (unsubscribe! hub id)
                  (when tabid
@@ -403,7 +406,7 @@
 (defn watch!
   "Broadcast to the hub on every state change."
   [!state hub]
-  (add-watch !state ::broadcast (fn [_ _ old new] (when (not= old new) (broadcast! hub new)))))
+  (add-watch !state ::broadcast (fn [_ _ old new] (when (not= old new) (broadcast! hub !state)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server

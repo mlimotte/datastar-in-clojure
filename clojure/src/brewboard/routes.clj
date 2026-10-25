@@ -92,7 +92,7 @@
                    {:on-open  (fn [ch]
                                 (hk/send! ch {:status 200 :headers (assoc sse/stream-headers "Connection" "keep-alive")} false)
                                 (let [extra (when open! (open!))]
-                                  (hub/subscribe! hub id (assoc sub :send-fn #(hk/send! ch % false)) @!state)
+                                  (hub/subscribe! hub id (assoc sub :send-fn #(hk/send! ch % false)) !state)
                                   (doseq [e extra] (hk/send! ch e false))))
                     :on-close (fn [_ _]
                                 (hub/unsubscribe! hub id)

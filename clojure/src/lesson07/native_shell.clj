@@ -201,17 +201,19 @@
 (defn unsubscribe! [hub id] (swap! hub dissoc id))
 
 (defn broadcast!
-  "Send each subscriber its whole view when it changed. Returns the ids sent to."
-  [hub state]
+  "Send each subscriber its whole view of the current state when it changed. Returns the ids sent
+  to. It reads !state inside the lock, so a broadcast that runs late cannot send an older state."
+  [hub !state]
   (locking hub
-    (into []
-          (keep (fn [[id {:keys [send-fn viewer last]}]]
-                  (let [view (html (view-for state viewer))]
-                    (when (not= view last)
-                      (send-fn (sse/patch-elements view))
-                      (swap! hub assoc-in [id :last] view)
-                      id))))
-          @hub)))
+    (let [state @!state]
+      (into []
+            (keep (fn [[id {:keys [send-fn viewer last]}]]
+                    (let [view (html (view-for state viewer))]
+                      (when (not= view last)
+                        (send-fn (sse/patch-elements view))
+                        (swap! hub assoc-in [id :last] view)
+                        id))))
+            @hub))))
 
 (defn notify!
   "Send each notification to every open stream of its sid as a bridge call (haptic + local
@@ -242,7 +244,7 @@
                                     (swap! !state brew/handle-command
                                            {:type :open-tab :sid sid :tabid tabid :stream id :draft draft}))
                                   (subscribe! hub id #(hk/send! ch % false) (dissoc viewer :draft))
-                                  (broadcast! hub @!state))
+                                  (broadcast! hub !state))
                       :on-close (fn [_ch _status]
                                   (unsubscribe! hub id)
                                   (when tabid
@@ -261,7 +263,7 @@
   (add-watch !state ::live
              (fn [_ _ old new]
                (when (not= old new)
-                 (broadcast! hub new)
+                 (broadcast! hub !state)
                  (doseq [{:keys [sid message]} (notify! hub (ready-notifications old new))]
                    (when-let [token (get-in new [:devices sid])]
                      (push! token message)))))))

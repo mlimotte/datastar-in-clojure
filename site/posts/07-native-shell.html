@@ -229,7 +229,7 @@
   (add-watch !state ::live
     (fn [_ _ old new]
       (when (not= old new)
-        (broadcast! hub new)
+        (broadcast! hub !state)
         (doseq [{:keys [sid message]} (notify! hub (ready-notifications old new))]
           (when-let [token (get-in new [:devices sid])]
             (push! token message)))))))</code></pre>
