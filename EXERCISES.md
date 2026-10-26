@@ -45,7 +45,7 @@ cd go && go test ./exercises/lessonNN/
 - **`broadcast`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 10 lines): Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.
 - **`stream-lifecycle`** (Clojure, `clojure/ex/exercises/lesson06/live.clj`, 10 lines): Make a fresh id for this stream. On open: for a viewer with a :tabid, run an :open-tab command (sid, tabid, this stream's id, the draft); subscribe send-fn with the viewer (without :draft); send it the whole current view right away (a reconnect needs it too). On close: unsubscribe, then run :close-tab for that tab and this stream.
 
-## Part 7 · [Replacing the React Native app](site/posts/07-native-shell.html)
+## Part 7 · [Replacing the React Native app (optional)](site/posts/07-native-shell.html)
 
 - **`shell-request`** (Clojure, `clojure/ex/exercises/lesson07/native_shell.clj`, 1 lines): The shell appends `BrewShell/1` to its User-Agent. Return true when the request's user-agent header contains it, false otherwise (including no header).
 - **`bridge-script`** (Clojure, `clojure/ex/exercises/lesson07/native_shell.clj`, 3 lines): Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: a customer named "</script>" must not end it.

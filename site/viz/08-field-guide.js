@@ -46,22 +46,29 @@
               ["stop", "The <code>window.BrewShell.post</code> shim from part 7. Custom JS, finally, listed and justified in the page's one glue script. It earned its spot."]] },
   ];
 
-  function ladderFrames(c) {
+  // One sequence through every interaction, so Step never stops before the last one.
+  function ladderFrames() {
     const frames = [];
-    c.steps.forEach((s, i) => frames.push({ upto: i, verdicts: c.steps.slice(0, i + 1), note: s[1] }));
-    const last = c.steps.length - 1;
-    frames.push({ upto: last, verdicts: c.steps, done: true,
-      note: `Stops at rung ${last + 1}, <b>${RUNGS[last]}</b>.` + (last > 0 ? ` Leave a one-line comment saying why rung${last > 1 ? "s" : ""} 1${last > 1 ? "–" + last : ""} didn't work.` : " Most Brew Board interactions stop right here, at the top.") });
+    CASES.forEach((c, ci) => {
+      c.steps.forEach((s, i) => frames.push({ ci, upto: i, verdicts: c.steps.slice(0, i + 1), note: s[1] }));
+      const last = c.steps.length - 1;
+      frames.push({ ci, upto: last, verdicts: c.steps, done: true,
+        note: `Stops at rung ${last + 1}, <b>${RUNGS[last]}</b>.` + (last > 0 ? "" : " Most Brew Board interactions stop right here, at the top.")
+          + (ci < CASES.length - 1 ? ` <i>Step on for the next interaction.</i>` : "") });
+    });
     return frames;
   }
+  const LADDER = ladderFrames();
+  const caseStart = (ci) => LADDER.findIndex((f) => f.ci === ci);
 
   if (document.querySelector("#viz-ladder")) {
-    const v = frame("#viz-ladder", "The decision ladder", "pick an interaction; try each rung in order");
-    let current = 0;
+    const v = frame("#viz-ladder", "The decision ladder", "step through every interaction, or pick one to jump to it");
     const picker = el("div", { class: "lad-picker" });
     const rungsEl = el("ol", { class: "lad-rungs" });
     const note = el("div", { class: "lad-note" });
-    const s = stepper(v.controls, ladderFrames(CASES[0]), (f) => {
+    const buttons = CASES.map((c, i) => el("button", { text: c.name, onclick: () => s.go(caseStart(i)) }));
+    picker.append(...buttons);
+    const s = stepper(v.controls, LADDER, (f) => {
       clear(rungsEl);
       RUNGS.forEach((r, i) => {
         const verdict = f.verdicts[i];
@@ -72,16 +79,9 @@
           el("span", { class: "lad-mark", text: state === "stop" ? "✓ stops here" : state === "skip" ? "✗ skip" : "" })));
       });
       note.innerHTML = f.note;
-      v.foot.innerHTML = CASES[current].name;
+      buttons.forEach((b, i) => b.classList.toggle("on", i === f.ci));
+      v.foot.innerHTML = `Interaction ${f.ci + 1} of ${CASES.length}: ${CASES[f.ci].name}`;
     });
-    CASES.forEach((c, i) => picker.append(el("button", {
-      text: c.name, class: i === 0 ? "on" : null,
-      onclick: (e) => {
-        current = i;
-        picker.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === e.target));
-        s.setFrames(ladderFrames(c));
-      },
-    })));
     v.stage.append(el("div", { class: "lad-grid" }, picker, el("div", null, rungsEl, note)));
   }
 
@@ -148,10 +148,10 @@
 
   if (document.querySelector("#predict-pointer")) {
     predict("#predict-pointer", {
-      prompt: "Sam's pointer rests on row 3's Advance button (order #3, placed). He clicks once. Brew Board re-renders the whole board, sorted by status. What is under his pointer now? Think about it before you answer.",
+      prompt: "Sam's pointer rests on row 3's Advance button (order #3, placed). They click once. Brew Board re-renders the whole board, sorted by status. What is under their pointer now? To answer, refer to the sample board view shown below. Think about it before you answer.",
       choices: ["#3's button, now showing \"making\"", "#2's button (Grace)", "Nothing: the list was rebuilt, so the button lost its hover"],
       answer: 1,
-      explain: "#3 sorts above the placed orders, so it moves up to row 2 and Grace's #2 slides down into row 3. The morph keeps each &lt;li&gt; (same node, same listeners) and moves it; the hover goes to whatever is under the pointer now. Step the figure above in \"Whole view\" mode to see it.",
+      explain: "#3 sorts above the placed orders, so it moves up to row 2 and Grace's #2 slides down into row 3. The morph keeps each &lt;li&gt; (same node, same listeners) and moves it; the hover goes to whatever is under the pointer now. Step the figure below in \"Whole view\" mode to see it.",
     });
   }
 

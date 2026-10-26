@@ -29,7 +29,8 @@
   @media (max-width: 520px) { .so-row { grid-template-columns: 1fr; } .so-btns { justify-content: flex-start; } }
 </style>
   <h1>Replacing the React Native app</h1>
-  <p class="dek">Here's the dirty little secret about Brew Board's customer app: it doesn't need any UI
+  <p class="dek"><b>Optional: for building a mobile app.</b> Skip it if you only ship to browsers;
+    part 8 mentions it in passing but doesn't need it. Still here? Then here's the dirty little secret about Brew Board's customer app: it doesn't need any UI
     code of its own. None. You wrap a WKWebView (iOS) or a WebView (Android) in the thinnest native
     shell you can get away with, point it at the same Clojure routes the browser already uses, and let
     the server tell it how to navigate. A tiny bridge ferries native features back and forth as events

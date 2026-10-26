@@ -37,14 +37,12 @@
   .rc-page.bad { color: var(--bad); font-weight: 600; }
 </style>
   <h1>Field guide: practices and trade-offs</h1>
-  <p class="dek"><b>Advanced.</b> Parts 1–7 built Brew Board one way: our way. This part is where we put
+  <p class="dek"><b>Optional: for weighing alternative architectures.</b> Parts 1–7 built Brew Board one way: our way. This part is where we put
     the tools down, step back from the workbench, and squint at what we made. First come two practices
     that decide where your code goes: the decision ladder, and how navigation and the URL work when
     Datastar flat-out refuses to have a history API. Then come six places where a perfectly reasonable
     app could have gone the other way, each with what it costs and what Brew Board chose. No
     sacred cows. Well, maybe one.</p>
-
-  <div data-warmup></div>
 
   <p>Here's where most of this part came from. We set the course down next to a production Datastar
     codebase and went through it rule by rule, asking one rude question of each: are you about
@@ -102,8 +100,9 @@
   <p>Rung 1 sits at the top because Datastar makes it cheap. That does <em>not</em> mean "always ask
     the server." Firing off a request per keystroke to learn something the browser already knows is
     a perfectly good reason to skip it. And the rule from part 3 still holds down on rung 4: an
-    expression may count, format, toggle and focus, but it never, ever computes a business value. Go
-    ahead, pick an interaction and walk it down the ladder:</p>
+    expression may count, format, toggle and focus, but it never, ever computes a business value. Step
+    through nine interactions below, each walked down the ladder in turn (or pick one to jump
+    straight to it):</p>
 
   <div id="viz-ladder"></div>
 
@@ -158,7 +157,8 @@
   <p>The list is the whole point. A glue file that has to justify each entry stays at two or three
     entries, because justifying things is tedious and people avoid tedium. A glue file that
     <em>doesn't</em> have to justify anything grows, slowly and then all at once, into a second front
-    end. And then you're right back where part 7 started, with two crews painting one fence.</p>
+    end. And then you've got two front ends, which is two crews painting one fence (part 7 has the long
+    version of that complaint).</p>
 
   <h2>Navigation and the URL (or: Datastar does not do history)</h2>
 
@@ -378,6 +378,157 @@ datastar-mode: append
     stable across re-renders, and (like every non-<code>_</code> signal) sent along with every
     request. One small gotcha: <code>crypto.randomUUID()</code> needs a secure context, which means
     https, or localhost during development.</p>
+
+  <h2 id="constitution">An agent constitution for Datastar apps</h2>
+
+  <p>One last thing, and this one's for your robots. If you build Datastar apps with a coding agent
+    (this series was written with one, so no judgment here), the agent needs the rules from this
+    series written down somewhere it actually reads them: a <code>CLAUDE.md</code>, an
+    <code>AGENTS.md</code>, a constitution file, whatever your tool loads every session. Left to its
+    own devices, an agent will cheerfully reach for the patterns it has seen ten thousand times,
+    which means JSON endpoints, a client-side store, and a signal per row. It isn't malicious. It
+    just went to a different school.</p>
+
+  <p>So here's a constitution. It's distilled from the agent instructions of two real Datastar apps,
+    with the domain, the language and the infrastructure sanded off, so it should drop into a
+    project in any server language. You've met most of it in parts 1–8. The rest is the stuff
+    somebody found the hard way, usually in a browser, usually at an inconvenient time. Copy it, cut
+    whatever your app has decided differently, and write down why.</p>
+<pre><code class="language-markdown"># Datastar app constitution
+
+Rules for any agent (or person) writing code in a Datastar app. Follow them
+unless a recorded decision says otherwise. A pattern these rules don't cover
+is a design decision: record it before you build it.
+
+## 1. Where code goes
+1. The server renders HTML and owns the truth. No client-side app state, no
+   client router, no build step. Business rules reach the browser only as
+   rendered HTML.
+2. Try every interaction against the ladder, top to bottom, and stop at the
+   first rung that works: server round-trip, native HTML, CSS, Datastar
+   attributes, custom JS.
+3. When you skip a rung for a reason a reader wouldn't guess, say why in a
+   one-line comment.
+4. Datastar expressions do UI bookkeeping only: count, format, toggle,
+   focus. They move values the server named. They never compute a business
+   value.
+5. Keep custom JS in one glue file. List every item in its header with the
+   reason the lower rungs failed. Code that renders data, derives a value,
+   owns state or knows a signal name is not glue.
+
+## 2. State
+6. Put each piece of state in the most authoritative, narrowest-lived home
+   that can hold it: durable data in the database; per-tab server state in a
+   server store keyed by a tab id; bookmarkable view state in the URL; facts
+   only the device knows (viewport, scroll, clock) in signals; per-element
+   identity in DOM attributes.
+7. Signals are messages, not state. They carry this request's input plus
+   facts the server can't see, and the next response overwrites them. The
+   server never treats a signal as a cache between requests.
+8. Signal count must not grow with the data. Every signal goes out with
+   every request, and per-row signals end in HTTP 414. Per-row data goes in
+   DOM attributes, read by one handler string that is the same on every row.
+   If signals must scale with something, it is bounded by user effort (edits
+   the user actually opened), and the code states the bound.
+9. Seed a tab id once, with data-signals:tabid__ifmissing, on an element no
+   patch replaces. crypto.randomUUID() needs a secure context.
+10. A control that changes a set carries the new value the server computed
+    for that click. No set arithmetic in attributes.
+
+## 3. Signals
+11. Only the server knows signal names. The server generates every
+    expression that names a signal; glue code never builds one.
+12. Signal names are valid JS identifiers. If a name embeds an id, encode
+    the id without collisions (hex works). Prefer putting the target id in
+    the request URL to parsing it back out of a signal name.
+13. Seed signals on one element above all their readers (usually &lt;body&gt;),
+    with __ifmissing. The first expression that reads a signal creates it,
+    so a seed below its reader is dead. Attributes are processed in document
+    order.
+14. Never re-send plain data-signals for user-owned signals inside a patched
+    region. The next morph resets what the user typed.
+15. To clear a signal, patch it to null: it is removed, and the next
+    __ifmissing seed applies again. "" is a value, not absence.
+
+## 4. Patches and the morph
+16. Every top-level element in a patch carries the id of the element it
+    replaces. A patch whose id isn't on the page silently does nothing. Ids
+    are unique per page.
+17. One render function per patched region, used by the full page and the
+    fragment endpoint alike, including its empty and error states. Two
+    renderers drift.
+18. View-state signals, and anything that must survive an update (nav,
+    notices, busy indicator), live in a shell outside every patched region.
+    Controls change a signal and refetch through one fetch path. Never bake
+    view state into a URL that sits outside the region being patched.
+19. The morph syncs checked, selected and value by attribute. Render the
+    true state from the server, or put the state in the element's id so a
+    change replaces the node.
+20. autofocus doesn't fire after a morph: focus with data-init. Native open
+    state (&lt;details&gt;, &lt;dialog&gt;) inside a patched region needs
+    data-preserve-attr="open".
+21. Choose whole-view re-render or targeted patches on purpose. Whole view
+    by default; targeted when an update must not move what the user is
+    working on.
+
+## 5. Transport
+22. A read that returns one element may be text/html. A write that patches
+    several elements, or elements and signals together, sends one SSE
+    response, and clears its own signals in that response.
+23. Send signals, not form fields: don't use contentType: 'form'.
+24. Read signals from the datastar query parameter on GET and from the body
+    on POST, PUT and PATCH. Malformed input yields {}, never a 500.
+25. Disable controls during a request with data-indicator, which always
+    comes down. A hand-managed flag must be cleared by every server outcome,
+    and still sticks when the network drops.
+26. The request's method and URL string decide what gets cancelled. When
+    responses can overtake each other, use one URL with the query in
+    signals, or a sequence number.
+27. Long-lived streams: open them with retry: 'always' if the server may end
+    them cleanly, and render the whole current view on every (re)connect.
+    Never poll from the client.
+
+## 6. Security
+28. Datastar expressions are JavaScript. HTML escaping doesn't protect them:
+    the browser decodes the attribute before Datastar evaluates it.
+    Interpolate only URL-encoded values, server-computed literals (numbers,
+    booleans) and signal references. Never a raw stored or request value.
+29. Generate signal seeds with a real JSON serializer, never by string
+    concatenation. User-authored text never enters an expression; reference
+    its signal instead.
+
+## 7. Navigation
+30. Between pages, use real links and full page loads. Datastar has no
+    history API.
+31. Bookmarkable view state goes in the URL: a &lt;form method="get"&gt; first. If
+    you update in place, the server stamps its canonical query string on the
+    region, glue mirrors it into pushState, and data-on:popstate__window
+    refetches.
+32. Put the context (tenant, workspace) in every URL, not only in a cookie.
+
+## 8. Versions and syntax
+33. Pin the browser bundle, and keep it paired with the server SDK's
+    protocol version.
+34. Keyed attributes use the v1.0 colon form (data-on:click); old dash forms
+    fail silently. A plugin whose own name has a dash keeps it
+    (data-on-interval). The plugin names in the pinned bundle are the list
+    of valid attributes.
+35. A valueless attribute renders as "". If your template engine renders
+    true as attr="attr", Datastar reads that value, and on an attribute that
+    takes no value it throws and stops processing the rest of the page.
+36. data-text and friends take expressions: write $name, not name.
+
+## 9. Verification
+37. Handlers are plain functions from request to response. Test them without
+    a browser: assert patch ids, patch order and signal patches.
+38. Turn invariants into render tests: every patch has an id, no reader
+    precedes its seed.
+39. Check morph, focus, history and signal behaviour in a real browser.
+    Several of these rules were found there, not by reading code.
+40. Record each decision with its cost and the alternatives rejected, and
+    read the record before "cleaning up" something that looks odd.</code></pre>
+  <p class="caption">Plain Markdown, so it pastes into whatever file your agent reads. Rule 21 is
+    trade-off 1 above, rule 25 is trade-off 5, and rule 26 is trade-off 4.</p>
 
   <div class="code-ref"><p>The code is in <code>clojure/src/lesson08/field_guide.clj</code> (ns
     <code>lesson08.field-guide</code>), with tests in <code>clojure/test/lesson08/field_guide_test.clj</code>.

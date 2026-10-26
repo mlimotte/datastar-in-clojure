@@ -8,7 +8,9 @@
     customers configure drinks and place orders, and a barista moves them along a live board. Along
     the way you'll decide what belongs in a signal and what doesn't (spoiler: less than you'd think),
     shape the backend's routes around commands and one long-lived stream, and finally serve the very
-    same routes to a thin native shell that takes the place of a React Native app. Yes, really.</p>
+    same routes to a thin native shell that takes the place of a React Native app. Yes, really.
+    Parts 1–6 are the core. Parts 7 and 8 are optional: part 7 is for building a mobile app, and
+    part 8 weighs the alternative architectures.</p>
 
   <p>It's a toy, but a toy in the useful sense, the way a model railway is useful if you want to
     understand switching. State is an atom, there is no auth and no database, and nothing is tuned.
@@ -17,3 +19,10 @@
     decision depends on how Datastar works inside (how it reads the stream, how signals track
     dependencies, how the morph matches elements), the post opens the hood and explains that piece
     from the source.</p>
+
+  <div class="aside"><p><strong>How this series was made.</strong> It was written with
+    <a href="https://claude.com/claude-code">Claude Code</a>, Anthropic's coding agent, on top of
+    <a href="https://github.com/dpsutton/learning-kit">Learning Kit</a>, Dan Sutton's toolkit for
+    teaching a topic by building a toy version of it. Learning Kit supplies the site shell, the
+    predict-then-reveal figures and recall cards, the exercise track, and the CI that checks the code,
+    the tests and every quoted excerpt. Thank you, Dan.</p></div>

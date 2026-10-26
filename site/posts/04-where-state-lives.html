@@ -299,6 +299,22 @@
     before sending, so you're not hammering the server once per keystroke like an anxious
     woodpecker.</p>
 
+  <div class="aside"><p><strong>Reading a Datastar attribute name.</strong> That
+    <code>__debounce.200ms</code> is the first modifier in the series, so here's the whole grammar,
+    once. Datastar parses every attribute name as
+    <code>data-{plugin}:{key}__{modifier}.{tag}.{tag}__{modifier}…</code>. Each double underscore
+    starts a modifier, and dots hang tags off that modifier. What's left before the first
+    <code>__</code> splits at its <em>first</em> colon into plugin and key, so the key runs from
+    that colon to the first <code>__</code>, and may contain colons of its own (part 7's
+    <code>brew:native</code>). So <code>data-on:click__window__debounce.500ms.leading</code> is plugin
+    <code>on</code>, key <code>click</code>, modifier <code>window</code> (listen on
+    <code>window</code>), and modifier <code>debounce</code> with tags <code>500ms</code> and
+    <code>leading</code>. You'll meet <code>__ifmissing</code> on <code>data-signals</code> in part 6
+    and <code>__window</code> in parts 7 and 8. Which modifiers a plugin accepts is listed under each
+    attribute in the
+    <a href="https://data-star.dev/reference/attributes">attribute reference</a>; there's no single
+    page with the grammar, which is why it's here.</p></div>
+
   <h2>What happens when oat sells out</h2>
 
   <p>Try this. Run the lesson, open two browser windows, and mark oat sold out at the REPL. Then

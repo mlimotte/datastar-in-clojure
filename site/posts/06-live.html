@@ -59,6 +59,48 @@
     wildly wasteful. It sounds like the kind of thing a code reviewer circles in red. Measured, it
     costs about 40 bytes per update, and it never loses the user's focus.</p>
 
+  <div class="aside" id="tldr"><p><strong>TL;DR, for the skeptics.</strong> This part is really about
+    cost, so let's get it out of the way up front. If you're already drafting a polite but firm reply,
+    it's probably one of these:</p>
+    <ul>
+      <li>"Re-render <em>every</em> viewer on <em>every</em> change? That can't scale."</li>
+      <li>"Sending the whole view each time has to waste bandwidth."</li>
+      <li>"What does the server have to hold for every open tab?"</li>
+      <li>"Won't a re-render clobber what I'm typing?"</li>
+    </ul>
+    <p>Fair questions, all of them. The short answers, by resource, are in the table below. Some are
+    built and measured in this part. Others are outside the scope of a toy, or depend on your domain
+    and how people actually use your app, and the table says which is which. (The last question isn't
+    about a resource at all. The morph answers it, in
+    <a href="#morph">"How the morph keeps your place"</a>.)</p></div>
+
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>resource</th><th>what it costs here</th><th>how you control it</th><th>where</th></tr></thead>
+    <tbody>
+      <tr><td>CPU</td><td>one render per open page per change: subscribers × changes × render time</td>
+        <td>render once per distinct view (every barista sees the same board); throttle a burst of
+          changes to the latest state; render only the views a change can affect</td>
+        <td>sketched in <a href="#whole-view-cost">"Sending the whole view…"</a>, not built. Which
+          views a change can affect depends on your domain.</td></tr>
+      <tr><td>bandwidth</td><td>whole view per update: 2,613 bytes for a 12-order board, about 540
+          gzipped on its own</td>
+        <td>send nothing when a view didn't change (the <code>:last</code> check); one compression
+          context per stream (39 to 44 bytes per update); targeted patches instead of the whole view</td>
+        <td><code>:last</code>: this part, built. Compression: measured in
+          <a href="#whole-view-cost">"Sending the whole view…"</a>, wiring it up is outside the scope
+          of this toy. Targeted patches: part 8, trade-off 1.</td></tr>
+      <tr><td>memory</td><td>per open page: the send function, the viewer, and the last HTML sent;
+          no event ids and no replay buffer</td>
+        <td>unsubscribe in <code>:on-close</code>; hidden tabs close their stream and reopen it when
+          visible; store a SHA-256 of the last HTML in <code>:last</code> instead of the HTML: 32 bytes per
+          page, however big the view (not a 32-bit <code>hashCode</code>, whose collisions would
+          skip real updates)</td>
+        <td><a href="#server-keeps">"What the server keeps"</a> and <a href="#reconnects">"Reconnects"</a>,
+          this part. The hash is not built here; it saves memory, not CPU, because the view is still
+          rendered to compute it. Sizing for real traffic depends on your usage patterns.</td></tr>
+    </tbody>
+  </table></div>
+
   <div data-warmup></div>
 
   <p>Part 5 left us with a cliffhanger, or at least a stale board. Ada placed an order, and Sam's
@@ -217,15 +259,12 @@ for each subscriber s
     Ada. Ada doesn't care about Grace's mocha, and now neither does Ada's network connection. The
     figure shows who gets an event for each command.</p>
 
-  <div class="aside"><p><strong>Yes, this renders every view on every change.</strong> I can hear
-    you objecting from here, and you're right to. Ada gets no event, but her page is still rendered so
-    that the server can compare it. The cost is subscribers × changes × render time. For a coffee shop
-    that is nothing. For a large page with hundreds of thousands of viewers it is real work. There are
-    ways to reduce it: render once for viewers who see the same thing, render only the views that a
-    change can affect, and combine a burst of changes into one broadcast. This lesson keeps the simple
-    version and does not build those.
-    <a href="#whole-view-cost">"Sending the whole view on every change is too much"</a>, below,
-    comes back to the bytes and the CPU.</p></div>
+  <div class="aside"><p><strong>Yes, this renders every view on every change.</strong> Ada gets no
+    event, but her page is still rendered so that the server can compare it. For a coffee shop that
+    is nothing; for hundreds of thousands of viewers it is real work. This lesson keeps the simple
+    version. The <a href="#tldr">TL;DR table</a> at the top lists the knobs, and
+    <a href="#whole-view-cost">"Sending the whole view on every change is too much"</a>, below, has
+    the numbers.</p></div>
 
   <div id="viz-fanout"></div>
 
@@ -351,7 +390,7 @@ for each subscriber s
 
   <div id="predict-focus"></div>
 
-  <h2>How the morph keeps your place (or: why this isn't innerHTML)</h2>
+  <h2 id="morph">How the morph keeps your place (or: why this isn't innerHTML)</h2>
 
   <p>A <code>datastar-patch-elements</code> event with no <code>selector</code> and the default mode
     <code>outer</code> finds the element with the same <code>id</code> (<code>&lt;main
@@ -407,7 +446,7 @@ function morphNode(old, new)
     why so many people believe, deep in their bones, that "send the whole page" can't work. With
     <code>innerHTML</code>, it can't. With a morph it does.</p>
 
-  <h2>Reconnects</h2>
+  <h2 id="reconnects">Reconnects</h2>
 
   <p>Let's be realistic: a stream open for an hour will break. Wi-Fi drops, a laptop sleeps, a deploy
     restarts the server. So what does Datastar do about it? From <code>fetch.ts</code>:</p>
@@ -438,7 +477,7 @@ function morphNode(old, new)
     A second <code>@get</code> to the same URL replaces the first rather than doubling up (Part 8
     covers request cancellation).</p>
 
-  <h2>What the server keeps and what it doesn't</h2>
+  <h2 id="server-keeps">What the server keeps and what it doesn't</h2>
 
   <p>Let's take inventory. The hub holds, per open page, the send function, the viewer (a customer's
     <code>sid</code> and <code>tabid</code>, or <code>:board</code>), and the last HTML sent. The state
