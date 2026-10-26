@@ -113,7 +113,7 @@
 
     v.foot.textContent = {
       page: "A page GET: no Datastar header, no signals, nothing fancy. It returns the whole document and sets the sid cookie, like it's 2005.",
-      query: "A query: GET, unguarded, changes nothing. Signals ride along in ?datastar=, and the handler reads three of the six that arrived. The other three just came for the scenery.",
+      query: "A query: GET, unguarded, changes nothing. Signals ride along in ?datastar=, and the handler reads three of the five that arrived. The other two just came for the scenery.",
       command: "A command: guarded, turned into a command map, applied with swap!, and answered with the patches it caused (this part's style; hold that thought for part 6).",
       forged: "A cross-site form can POST all it likes, but it cannot add Datastar-Request. And a cross-site fetch that adds it triggers a CORS preflight the server never approves. Nice try.",
     }[r.kind];

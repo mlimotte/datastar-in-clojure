@@ -22,7 +22,8 @@
   (map #(str prefix " " %) (string/split-lines text)))
 
 (defn patch-elements
-  "A datastar-patch-elements event. Data lines follow the golden SDK test order."
+  "A datastar-patch-elements event: selector, mode, view-transition and namespace lines, then one
+  elements line per line of HTML."
   ([html] (patch-elements html {}))
   ([html {:keys [selector mode use-view-transition namespace] :as opts}]
    (send-event "datastar-patch-elements"

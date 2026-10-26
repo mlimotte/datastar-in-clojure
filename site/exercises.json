@@ -129,7 +129,7 @@
  },
  {
   "id": "broadcast",
-  "hint": "Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last. Return the ids that were sent to.",
+  "hint": "Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last, but only if the subscriber is still in the hub: its stream may close mid-broadcast. Return the ids that were sent to.",
   "lines": 10,
   "lang": "Clojure",
   "lesson": "06",
@@ -153,7 +153,7 @@
  },
  {
   "id": "bridge-script",
-  "hint": "Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: a customer named \"</script>\" must not end it.",
+  "hint": "Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: write every < as \\u003c, so text such as \"</script>\" or \"<!--<script>\" in a customer's name cannot end or confuse the tag.",
   "lines": 3,
   "lang": "Clojure",
   "lesson": "07",

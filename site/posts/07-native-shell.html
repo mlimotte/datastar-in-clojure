@@ -110,8 +110,9 @@
     <code>https://</code> is a secure context, <code>crypto.randomUUID()</code> is right there for
     you.)</p>
 
-  <p>In the shell, the web nav goes away, because the shell has a native one, and… that's it. That's
-    the whole diff. The <code>#app</code> view, the live stream, the drop-down and the commands are
+  <p>In the shell, the web nav and the page's <code>&lt;h1&gt;</code> title go away, because the
+    shell draws its own nav bar and title, and… that's it. That's the whole diff. Apart from that
+    title, the <code>#app</code> view, the live stream, the drop-down and the commands are
     byte-for-byte the same. This is the part that should make you grin. (A real app would also add
     <code>viewport-fit=cover</code> and CSS <code>env(safe-area-inset-*)</code> padding to keep
     content out from under the notch and the home indicator. The toy doesn't bother. It's a
@@ -184,7 +185,7 @@
 
 <pre><code class="language-clojure">(defn bridge-script [msg]
   (sse/execute-script (str "window.BrewShell.post("
-                           (string/replace (json/generate-string msg) "&lt;/" "&lt;\\/")
+                           (string/replace (json/generate-string msg) "&lt;" "\\u003c")
                            ")")))
 
 (bridge-script {:type "haptic" :style "success"})
@@ -199,9 +200,13 @@
     <code>&lt;/script</code>, period, whatever JSON thinks about it. The HTML parser does not care
     about your JSON. It has never cared about your JSON. So a customer named
     <code>&lt;/script&gt;</code> would close the tag early, everything after it would be parsed as
-    HTML, and now you're having a very bad day. <code>&lt;\/</code> means the same thing inside a
-    JavaScript string, but it can't end the tag. The exercise test checks exactly that name, because
-    of course it does.</p>
+    HTML, and now you're having a very bad day. And <code>&lt;/</code> isn't the only trap: a name
+    containing <code>&lt;!--&lt;script&gt;</code> flips the parser into a mode where the real
+    <code>&lt;/script&gt;</code> no longer closes anything, so the tag swallows the rest of the
+    payload and the call dies with a syntax error. The cure for both is to write every
+    <code>&lt;</code> in the JSON as <code>\u003c</code>. It means the same character inside a
+    JavaScript string, and the HTML parser never sees a <code>&lt;</code> at all. The exercise test
+    tries both names, because of course it does.</p>
 
   <p><b>Native → web.</b> Going the other way, the shell dispatches a DOM event on
     <code>window</code> (iOS <code>evaluateJavaScript</code>, Android

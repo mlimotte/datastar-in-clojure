@@ -1,8 +1,8 @@
   <p>And here's where it all comes together. The capstone is the whole of Brew Board in <code>clojure/src/brewboard</code>: the hand-written
     SSE writer, the menu and pure <code>handle-command</code>, whole-view renders for the customer
     and the board, the broadcast hub, the reitit routes, and the native-shell routes. Every piece you built, in one place. Start it and
-    open the two pages side by side (two browsers, or one normal and one private window, so they get
-    different <code>sid</code> cookies, because part 6 taught you what happens otherwise):</p>
+    open the two pages side by side, in two tabs of one browser. That's safe because part 6 gave
+    every tab its own id, so the tabs don't step on each other's drafts:</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M -m brewboard.main      # PORT env var, default 8080
 # customer: http://localhost:8080/      board: http://localhost:8080/board</code></pre>
   <p>Add a medium oat latte as Ada, place the order, advance it twice on the board, and mark oat milk

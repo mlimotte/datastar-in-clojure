@@ -46,7 +46,7 @@
 (defn- html-response [body]
   {:status 200 :headers {"Content-Type" "text/html; charset=utf-8"} :body body})
 
-(defn- ->kw [s] (some-> s not-empty keyword))
+(defn- ->kw [s] (when (string? s) (some-> s not-empty keyword)))
 
 (defn draft->line
   "The add-to-cart line from the draft signals (strings from the browser)."
@@ -102,7 +102,7 @@
   "One stream per tab. Opening it registers the tab and adopts its draft; closing it
   forgets the tab (the next open adopts the draft again, so nothing is lost)."
   [{:keys [!state] :as sys} {:keys [sid signals] :as req}]
-  (let [tabid     (or (not-empty (:tabid signals)) (str (random-uuid)))
+  (let [tabid     (or (some-> (:tabid signals) str not-empty) (str (random-uuid)))
         stream-id (random-uuid)]
     (stream sys req {:view-fn  #(views/customer-app % sid tabid)
                      :extra-fn #(native/ready-events sid %1 %2)}
@@ -117,7 +117,7 @@
 
 (defn routes [{:keys [!state] :as sys}]
   (let [run      (fn [{:keys [signals]} cmd]
-                   (state/command! !state (assoc cmd :tabid (:tabid signals)))
+                   (state/command! !state (assoc cmd :tabid (some-> (:tabid signals) str)))
                    sse/no-content)
         shell?   native/shell-request?
         commands {:middleware [wrap-datastar-request]}]

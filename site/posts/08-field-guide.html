@@ -427,9 +427,9 @@ is a design decision: record it before you build it.
    server never treats a signal as a cache between requests.
 8. Signal count must not grow with the data. Every signal goes out with
    every request, and per-row signals end in HTTP 414. Per-row data goes in
-   DOM attributes, read by one handler string that is the same on every row.
-   If signals must scale with something, it is bounded by user effort (edits
-   the user actually opened), and the code states the bound.
+   DOM attributes or in each row's action URL (/orders/7/advance), never in
+   signals. If signals must scale with something, it is bounded by user
+   effort (edits the user actually opened), and the code states the bound.
 9. Seed a tab id once, with data-signals:tabid__ifmissing, on an element no
    patch replaces. crypto.randomUUID() needs a secure context.
 10. A control that changes a set carries the new value the server computed
@@ -447,13 +447,15 @@ is a design decision: record it before you build it.
     order.
 14. Never re-send plain data-signals for user-owned signals inside a patched
     region. The next morph resets what the user typed.
-15. To clear a signal, patch it to null: it is removed, and the next
-    __ifmissing seed applies again. "" is a value, not absence.
+15. Clear a signal that a control is bound to by setting it to "". Patching
+    null removes the signal: a bound input keeps showing the old text, and a
+    seed that already ran is not applied again. Use null only for a signal
+    nothing binds.
 
 ## 4. Patches and the morph
 16. Every top-level element in a patch carries the id of the element it
-    replaces. A patch whose id isn't on the page silently does nothing. Ids
-    are unique per page.
+    replaces. A patch whose id isn't on the page changes nothing (Datastar
+    only logs a console warning). Ids are unique per page.
 17. One render function per patched region, used by the full page and the
     fragment endpoint alike, including its empty and error states. Two
     renderers drift.
@@ -475,9 +477,11 @@ is a design decision: record it before you build it.
 22. A read that returns one element may be text/html. A write that patches
     several elements, or elements and signals together, sends one SSE
     response, and clears its own signals in that response.
-23. Send signals, not form fields: don't use contentType: 'form'.
-24. Read signals from the datastar query parameter on GET and from the body
-    on POST, PUT and PATCH. Malformed input yields {}, never a 500.
+23. Send signals, not form fields. Use contentType: 'form' only for a real
+    form submission, such as a file upload.
+24. Read signals from the datastar query parameter on GET and DELETE, and
+    from the body on POST, PUT and PATCH. Malformed or wrongly typed input
+    yields {} or a validation error, never a 500.
 25. Disable controls during a request with data-indicator, which always
     comes down. A hand-managed flag must be cleared by every server outcome,
     and still sticks when the network drops.
@@ -492,10 +496,12 @@ is a design decision: record it before you build it.
 28. Datastar expressions are JavaScript. HTML escaping doesn't protect them:
     the browser decodes the attribute before Datastar evaluates it.
     Interpolate only URL-encoded values, server-computed literals (numbers,
-    booleans) and signal references. Never a raw stored or request value.
+    booleans, keywords from a fixed set) and signal references. Never a raw
+    stored or request value.
 29. Generate signal seeds with a real JSON serializer, never by string
-    concatenation. User-authored text never enters an expression; reference
-    its signal instead.
+    concatenation. JSON inside inline &lt;script&gt; text writes every &lt; as
+    \u003c. User-authored text never enters an expression; reference its
+    signal instead.
 
 ## 7. Navigation
 30. Between pages, use real links and full page loads. Datastar has no
@@ -511,8 +517,9 @@ is a design decision: record it before you build it.
     protocol version.
 34. Keyed attributes use the v1.0 colon form (data-on:click); old dash forms
     fail silently. A plugin whose own name has a dash keeps it
-    (data-on-interval). The plugin names in the pinned bundle are the list
-    of valid attributes.
+    (data-on-interval). The plugin names in the pinned bundle list the
+    plugin attributes; a few morph controls (data-preserve-attr,
+    data-ignore-morph, data-ignore) are read by the morph itself.
 35. A valueless attribute renders as "". If your template engine renders
     true as attr="attr", Datastar reads that value, and on an attribute that
     takes no value it throws and stops processing the rest of the page.

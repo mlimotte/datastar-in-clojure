@@ -51,7 +51,9 @@
     (is (= {} (patched-signals (:body (w/drink-options-response {:drink "latte" :size "large" :milk "almond"} #{}))))))
   (testing "a chai drops small"
     (is (= {:size "medium"}
-           (patched-signals (:body (w/drink-options-response {:drink "chai" :size "small" :milk "whole"} #{})))))))
+           (patched-signals (:body (w/drink-options-response {:drink "chai" :size "small" :milk "whole"} #{}))))))
+  (testing "a number where a string belongs is treated as missing, not a 500"
+    (is (= 200 (:status (w/drink-options-response {:drink 5 :size true :milk 1} #{}))))))
 
 (deftest add-to-cart-test
   (let [state {:sold-out #{:oat} :carts {"s1" [{:drink :mocha :size :small :milk :whole :qty 1}]}}

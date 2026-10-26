@@ -72,6 +72,19 @@
       (is (= [] (l/broadcast! hub !state)))
       (is (= (render @!state {:kind :customer :sid "ada"}) (get-in @hub [:ada :last]))))))
 
+(deftest close-during-broadcast-test
+  (testing "a stream that closes mid-broadcast stays unsubscribed, and later broadcasts still work"
+    (let [hub (l/make-hub)
+          !state (atom l/initial-state)
+          [sam-sent sam-fn] (recorder)]
+      (l/subscribe! hub :ada (fn [_] (l/unsubscribe! hub :ada)) {:kind :customer :sid "ada"})
+      (l/subscribe! hub :sam sam-fn {:kind :board})
+      (l/broadcast! hub !state)
+      (is (= #{:sam} (set (keys @hub))))
+      (swap! !state l/handle-command {:type :toggle-stock :milk :oat})
+      (is (= [:sam] (l/broadcast! hub !state)))
+      (is (= 2 (count @sam-sent))))))
+
 (deftest tab-commands-test
   (let [opened (l/handle-command l/initial-state {:type :open-tab :sid "ada" :tabid "t1" :stream 1
                                                   :draft {:drink :chai :size :small :milk :oat}})]

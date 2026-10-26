@@ -236,7 +236,8 @@ for each subscriber s
                     (let [view (html (view-for state viewer))]
                       (when (not= view last)
                         (send-fn (sse/patch-elements view))
-                        (swap! hub assoc-in [id :last] view)
+                        (swap! hub #(cond-> % (contains? % id)   ;; still subscribed?
+                                      (assoc-in [id :last] view)))
                         id))))
             @hub))))
 
@@ -253,6 +254,15 @@ for each subscriber s
     would stay stale until the next change. So <code>broadcast!</code> ignores that value and reads
     <code>@!state</code> inside the lock. A late broadcast sees the newest state, renders what was
     already sent, and sends nothing. Late, but harmless.</p>
+
+  <p>One more race, and it's sneakier. <code>unsubscribe!</code> runs from http-kit's
+    <code>:on-close</code>, on its own thread, and doesn't wait for the lock. So a tab can close
+    while a broadcast is halfway through the loop. A plain <code>(swap! hub assoc-in [id :last] view)</code>
+    would then cheerfully re-create the departed tab as <code>{:last "…"}</code>, with no
+    <code>send-fn</code> and no viewer, and every later broadcast would throw on it. That's every
+    command failing and every live page frozen, from one badly timed close. The
+    <code>contains?</code> check records <code>:last</code> only for a subscriber that is still
+    there.</p>
 
   <p>The <code>:last</code> check matters more than it looks. Most changes touch one person's view:
     when Grace adds a mocha to her cart, Ada's page renders to the same string, so nothing is sent to

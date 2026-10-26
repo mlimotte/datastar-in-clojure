@@ -20,9 +20,10 @@
 
 (defn bridge-script
   "An SSE event that runs window.BrewShell.post(msg) in the page. In the shell this
-  reaches native code; in a plain browser it is a no-op."
+  reaches native code; in a plain browser it is a no-op. Every < in the JSON is written as
+  \u003c, so user text cannot end or confuse the <script> tag."
   [msg]
-  (sse/execute-script (str "window.BrewShell?.post(" (json/generate-string msg) ")")))
+  (sse/execute-script (str "window.BrewShell?.post(" (string/replace (json/generate-string msg) "<" "\\u003c") ")")))
 
 (defn- first-drink [{:keys [lines]}]
   (some-> lines first :drink menu/drink-name string/lower-case))

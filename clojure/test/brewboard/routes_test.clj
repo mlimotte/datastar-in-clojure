@@ -130,4 +130,7 @@
     (testing "a malformed datastar param or body is treated as no signals, not a 500"
       (is (= 200 (:status (app (assoc (req :get "/") :query-string "datastar=%7Bnot-json")))))
       (is (= 204 (:status (app (assoc (req :post "/orders" :sid "a" :datastar? true)
-                                      :body (ByteArrayInputStream. (.getBytes "[1,2]" "UTF-8"))))))))))
+                                      :body (ByteArrayInputStream. (.getBytes "[1,2]" "UTF-8"))))))))
+    (testing "a number where a string belongs, or a non-numeric index, is not a 500"
+      (is (= 204 (:status (app (req :post "/draft" :sid "a" :datastar? true :signals {:tabid 5 :drink 1 :size true})))))
+      (is (= 204 (:status (app (req :delete "/cart/items/abc" :sid "a" :datastar? true))))))))

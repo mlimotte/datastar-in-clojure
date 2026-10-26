@@ -53,7 +53,7 @@
     (case type
       :add-to-cart      (update-in state [:carts sid] (fnil conj []) line)
       :remove-from-cart (cond-> state
-                          (< -1 idx (count (get-in state [:carts sid])))
+                          (and (int? idx) (< -1 idx (count (get-in state [:carts sid]))))
                           (update-in [:carts sid] remove-index idx))
       :place-order      (place-order state sid customer)
       :advance          (advance state id)

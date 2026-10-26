@@ -19,7 +19,11 @@
 
 (deftest bridge-script-test
   (is (string/includes? (native/bridge-script {:type "haptic" :style "success"})
-                        "data: elements <script data-effect=\"el.remove()\">window.BrewShell?.post({\"type\":\"haptic\",\"style\":\"success\"})</script>")))
+                        "data: elements <script data-effect=\"el.remove()\">window.BrewShell?.post({\"type\":\"haptic\",\"style\":\"success\"})</script>"))
+  (testing "user text can't close or confuse the script tag"
+    (doseq [body ["</script><img src=x onerror=alert(1)>" "<!--<script>"]]
+      (let [ev (native/bridge-script {:body body})]
+        (is (= 2 (count (re-seq #"<" ev))) "only the opening and closing script tags have a <")))))
 
 (def ^:private placed
   (-> state/initial

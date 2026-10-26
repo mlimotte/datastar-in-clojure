@@ -1,7 +1,7 @@
 # Datastar in Clojure
 
 Learn to build hypermedia apps with [Datastar](https://data-star.dev/) (v1.0.4) and Clojure, without
-an SDK. Seven parts build toward **Brew Board**, a coffee counter with a live barista board, a
+an SDK. Eight parts build toward **Brew Board**, a coffee counter with a live barista board, a
 server-rendered drop-down, and a thin native shell that replaces a React Native app.
 
 Built on [learning-kit](https://github.com/dpsutton/learning-kit): interactive posts, a Clojure

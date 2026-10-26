@@ -46,9 +46,10 @@
   [msg]
   ;; EXERCISE(bridge-script): Return an execute-script event whose script calls
   ;; window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a
-  ;; <script> tag: a customer named "</script>" must not end it.
+  ;; <script> tag: write every < as \u003c, so text such as "</script>" or "<!--<script>" in a
+  ;; customer's name cannot end or confuse the tag.
   (sse/execute-script (str "window.BrewShell.post("
-                           (string/replace (json/generate-string msg) "</" "<\\/")
+                           (string/replace (json/generate-string msg) "<" "\\u003c")
                            ")"))
   ;; END EXERCISE
   )
@@ -211,7 +212,7 @@
                     (let [view (html (view-for state viewer))]
                       (when (not= view last)
                         (send-fn (sse/patch-elements view))
-                        (swap! hub assoc-in [id :last] view)
+                        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last] view)))
                         id))))
             @hub))))
 

@@ -265,7 +265,8 @@
   ;; EXERCISE(broadcast): Lock the hub, then read the current state from !state. For every
   ;; subscriber, render (view-for state viewer) to an HTML string. If it differs from the
   ;; subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it
-  ;; as :last. Return the ids that were sent to.
+  ;; as :last, but only if the subscriber is still in the hub: its stream may close mid-broadcast.
+  ;; Return the ids that were sent to.
   (locking hub
     (let [state @!state]
       (into []
@@ -273,7 +274,7 @@
                     (let [view (html (view-for state viewer))]
                       (when (not= view last)
                         (send-fn (sse/patch-elements view))
-                        (swap! hub assoc-in [id :last] view)
+                        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last] view)))
                         id))))
             @hub)))
   ;; END EXERCISE

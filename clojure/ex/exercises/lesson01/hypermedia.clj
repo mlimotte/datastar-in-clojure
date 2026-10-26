@@ -116,10 +116,10 @@
         url  (str "http://localhost:" port)]
     (println "Part 1: HTML over the wire. Server on" url)
     (println "The page has <div id=\"greeting\"> and a button with data-on:click=\"@get('/hello')\".")
-    (show "GET /hello  (what the button sends)" (http-get (str url "/hello")))
+    (show "GET /hello?datastar=%7B%7D  (what the button sends)" (http-get (str url "/hello?datastar=%7B%7D")))
     (println "\nThe browser reads this one event, finds the element whose id is \"greeting\",")
     (println "and morphs the old div into the new one. No JavaScript of ours ran.")
-    (show "GET /hello-html  (the same patch as text/html)" (http-get (str url "/hello-html")))
+    (show "GET /hello-html?datastar=%7B%7D  (the same patch as text/html)" (http-get (str url "/hello-html?datastar=%7B%7D")))
     (println "\nA text/html response becomes one patch-elements event on the client side.")
     (println "SSE can carry many events and can stay open; text/html carries exactly one patch.")
     (println (str "\nTo try it in a browser: (exercises.lesson01.hypermedia/start! 8080), then open http://localhost:8080/"))

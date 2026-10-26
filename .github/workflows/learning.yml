@@ -2,7 +2,8 @@
 # All the machinery lives in learning-kit; this project holds only content.
 #
 # A copy of learning-kit's reusable workflow (.github/workflows/learning.yml) without the
-# setup-go step: that step requires go/go.mod, and this project is Clojure-only. Go back to
+# setup-go step: that step requires go/go.mod, and this project is Clojure-only. It also pins the
+# kit to a commit and gives Pages write access only to the deploy job. Go back to
 # `uses: dpsutton/learning-kit/.github/workflows/learning.yml@main` once the kit skips Go for
 # projects without it.
 name: Learning
@@ -10,15 +11,17 @@ on:
   push: { branches: [main] }
   pull_request:
   workflow_dispatch:
-permissions: { contents: read, pages: write, id-token: write }
+permissions: { contents: read }
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions: { contents: read, pages: read }
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/checkout@v7.0.1
-        with: { repository: dpsutton/learning-kit, ref: main, path: .kit }
+        # Pinned: this job runs the kit's code. Bump the SHA to take kit updates.
+        with: { repository: dpsutton/learning-kit, ref: 4bcf7dce529e930d4a189f44a284d2263d1070e4, path: .kit }
       - uses: actions/setup-java@v6.0.1
         with: { distribution: temurin, java-version: "21" }
       - uses: DeLaGuardo/setup-clojure@13.7.0
@@ -44,6 +47,7 @@ jobs:
     needs: verify
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions: { pages: write, id-token: write }
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

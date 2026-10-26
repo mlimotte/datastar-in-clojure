@@ -24,12 +24,13 @@
       (is (string/includes? ev "data-effect=\"el.remove()\"")))
     (testing "the script posts the message as a JSON object"
       (is (= "window.BrewShell.post({\"type\":\"haptic\",\"style\":\"success\"})" (script-of ev)))))
-  (testing "a message can't close the script tag early"
-    (let [ev (n/bridge-script {:body "</script><script>alert(1)"})]
-      (is (= 1 (count (re-seq #"</script>" ev))))
-      (is (= {:body "</script><script>alert(1)"}
-             (-> (script-of ev) (string/replace #"^window\.BrewShell\.post\(|\)$" "")
-                 (json/parse-string true)))))))
+  (testing "a message can't close or confuse the script tag"
+    (doseq [body ["</script><script>alert(1)" "<!--<script>"]]
+      (let [ev (n/bridge-script {:body body})]
+        (is (not (string/includes? (script-of ev) "<")) "the script text has no <")
+        (is (= {:body body}
+               (-> (script-of ev) (string/replace #"^window\.BrewShell\.post\(|\)$" "")
+                   (json/parse-string true))))))))
 
 (def two-orders
   (-> brew/initial-state
@@ -61,6 +62,19 @@
              ua (assoc-in [:headers "user-agent"] ua)
              sid (assoc-in [:headers "cookie"] (str "sid=" sid))
              signals (assoc :body (java.io.ByteArrayInputStream. (.getBytes (json/generate-string signals) "UTF-8"))))))
+
+(deftest close-during-broadcast-test
+  (testing "a stream that closes mid-broadcast stays unsubscribed, and later broadcasts still work"
+    (let [hub (n/make-hub)
+          !state (atom brew/initial-state)
+          sent (atom [])]
+      (n/subscribe! hub :ada (fn [_] (n/unsubscribe! hub :ada)) {:kind :customer :sid "ada"})
+      (n/subscribe! hub :sam #(swap! sent conj %) {:kind :board})
+      (n/broadcast! hub !state)
+      (is (= #{:sam} (set (keys @hub))))
+      (swap! !state brew/handle-command {:type :toggle-stock :milk :oat})
+      (is (= [:sam] (n/broadcast! hub !state)))
+      (is (= 2 (count @sent))))))
 
 (deftest native-routes-test
   (let [!state (atom brew/initial-state)

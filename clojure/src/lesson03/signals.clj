@@ -47,12 +47,14 @@
 (defn dollars [cents] (format "$%d.%02d" (quot cents 100) (rem cents 100)))
 
 (defn ->draft
-  "Turn signals (strings from the browser) into a draft with keywords."
+  "Turn signals (strings from the browser) into a draft with keywords. A value that is not a
+  non-empty string, such as a number from a crafted request, becomes nil."
   [{:keys [drink size milk qty]}]
-  {:drink (some-> drink not-empty keyword)
-   :size  (some-> size not-empty keyword)
-   :milk  (some-> milk not-empty keyword)
-   :qty   qty})
+  (let [->kw #(when (string? %) (some-> % not-empty keyword))]
+    {:drink (->kw drink)
+     :size  (->kw size)
+     :milk  (->kw milk)
+     :qty   qty}))
 
 (defn draft-error
   "Return why the draft is not a valid order line, or nil when it is valid."

@@ -343,9 +343,9 @@ data: signals {"customer":""}
   <p>Never a raw stored or request value. Never. The same thinking covers the other two places where
     values meet code. Seed signals with cheshire (<code>{:data-signals (json/generate-string m)}</code>):
     JSON is a JavaScript literal and cheshire escapes the quotes inside strings, which hand-built
-    <code>(str "{name: '" name "'}")</code> doesn't. And inline <code>&lt;script&gt;</code> text must
-    escape <code>&lt;/</code>, or a value containing <code>&lt;/script&gt;</code> ends the tag early;
-    part 7's <code>bridge-script</code> does this.</p>
+    <code>(str "{name: '" name "'}")</code> doesn't. And JSON inside an inline <code>&lt;script&gt;</code> must
+    write every <code>&lt;</code> as <code>\u003c</code>, or a value containing
+    <code>&lt;/script&gt;</code> ends the tag early; part 7's <code>bridge-script</code> does this.</p>
 
   <div class="compare" data-label="How htmx does it"><p>htmx marks its requests with
     <code>HX-Request: true</code> and expects HTML fragments back, swapped by

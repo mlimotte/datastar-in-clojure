@@ -56,7 +56,10 @@
                           "$3.50")))
   (testing "no signals at all: the server still answers with a message"
     (is (= "<p class=\"error\" id=\"quote\">Pick a drink.</p>"
-           (patched-html (:body (s/quote-response {})))))))
+           (patched-html (:body (s/quote-response {}))))))
+  (testing "a number or boolean where a string belongs is treated as missing, not a 500"
+    (is (= "<p class=\"error\" id=\"quote\">Pick a drink.</p>"
+           (patched-html (:body (s/quote-response {:drink 5 :size true :milk 1 :qty 1})))))))
 
 (deftest handler-test
   (testing "GET /quote goes through wrap-params"

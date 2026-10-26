@@ -45,7 +45,7 @@
 (defn bridge-script
   "An SSE event that calls window.BrewShell.post(msg) in the browser."
   [msg]
-  ;; EXERCISE(bridge-script): Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: a customer named "</script>" must not end it.
+  ;; EXERCISE(bridge-script): Return an execute-script event whose script calls window.BrewShell.post with msg as a JSON object literal. The JSON must be safe inside a <script> tag: write every < as \u003c, so text such as "</script>" or "<!--<script>" in a customer's name cannot end or confuse the tag.
   (throw (ex-info "TODO: exercise bridge-script" {:exercise "bridge-script"}))
   )
 
@@ -202,7 +202,7 @@
                     (let [view (html (view-for state viewer))]
                       (when (not= view last)
                         (send-fn (sse/patch-elements view))
-                        (swap! hub assoc-in [id :last] view)
+                        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last] view)))
                         id))))
             @hub))))
 

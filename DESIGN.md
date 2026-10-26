@@ -5,7 +5,7 @@ don't silently diverge.
 
 ## What this course is
 
-How to *use* Datastar from Clojure, built up over seven parts toward one app, **Brew Board**.
+How to *use* Datastar from Clojure, built up over eight parts toward one app, **Brew Board**.
 
 - **Clojure only.** No Go track, no browser terminal. (`lk` skips Go when `go/go.mod` is absent.)
 - **No Datastar SDK.** We never depend on `dev.data-star.clojure/*`. Part 2 writes the ~40-line SSE
@@ -214,7 +214,7 @@ a partial CSRF defense that relies on SameSite cookies and no permissive CORS, n
 - **The payoff:** when an order turns `:ready`, the customer's stream sends the re-rendered view
   **plus** a bridge script (haptic + local notification "Ada, your latte is ready"). New screens
   ship by deploying the server; the shell binary does not change.
-- `native/ios/BrewShell/*.swift` and `native/android/.../MainActivity.kt`: small reference shells
+- `native/ios/BrewShell/*.swift` and `native/android/.../ShellActivity.kt`: small reference shells
   (~100–200 lines each), not built in CI. `native/README.md` says so and what was checked locally.
 
 ## Parts, files, exercises
@@ -310,7 +310,7 @@ Exercise ids match `[\w-]+` (no `!` or `?`): the id `broadcast` marks `broadcast
 
 ## Revision 2026-10-08: practices adopted after comparing with a production Datastar app
 
-These override earlier sections. Background: `tmp/2026-10-08-thread-datastar-practices.md`.
+These override earlier sections.
 
 ### R1. Per-tab state is keyed by a tab id, not the sid cookie (parts 6–7, capstone)
 - A cookie identifies a browser; every tab shares it. Per-customer state (cart, orders, push
@@ -355,5 +355,5 @@ These override earlier sections. Background: `tmp/2026-10-08-thread-datastar-pra
 - Hiccup's HTML escaping does not protect a Datastar expression: the browser decodes the
   attribute, then Datastar evaluates the text as JS. Interpolate only server literals (integers,
   fixed keywords), URL-encoded values, or signal references; never raw stored or request values.
-  Seed signals with cheshire. Inline `<script>` text escapes `</`. Show a bad example (a customer
+  Seed signals with cheshire. JSON in inline `<script>` text writes every `<` as `\u003c`. Show a bad example (a customer
   name concatenated into an `@post` URL) and the fix.

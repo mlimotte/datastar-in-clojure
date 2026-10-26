@@ -39,7 +39,7 @@
                              (not= html last-html) (conj (sse/patch-elements html))
                              extra-fn              (into (extra-fn old-state new-state)))]
               :when (seq events)]
-        (swap! hub assoc-in [id :last-html] html)
+        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last-html] html)))
         (send-fn (apply str events))))))
 
 (defn watch-state!

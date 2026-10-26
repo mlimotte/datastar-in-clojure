@@ -51,3 +51,17 @@
       (testing "a broadcast that runs late sends nothing older"
         (hub/broadcast! h !s state/initial s1)
         (is (= 2 (count @!a)))))))
+
+(deftest close-during-broadcast-test
+  (testing "a stream that closes mid-broadcast stays unsubscribed, and later broadcasts still work"
+    (let [h      (hub/new-hub)
+          [!b b] (sink)
+          !s     (atom state/initial)
+          view   (fn [s] [:main#app (count (:sold-out s))])]
+      (hub/subscribe! h :b {:send-fn b :view-fn view} !s)
+      (swap! h assoc :a {:send-fn identity :view-fn (fn [s] (hub/unsubscribe! h :a) (view s))})
+      (hub/broadcast! h !s @!s @!s)
+      (is (= #{:b} (set (keys @h))))
+      (swap! !s state/handle-command {:type :toggle-stock :milk :oat})
+      (hub/broadcast! h !s state/initial @!s)
+      (is (= 2 (count @!b))))))
