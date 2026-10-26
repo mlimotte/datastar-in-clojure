@@ -29,45 +29,58 @@
   @media (max-width: 520px) { .so-row { grid-template-columns: 1fr; } .so-btns { justify-content: flex-start; } }
 </style>
   <h1>Replacing the React Native app</h1>
-  <p class="dek">Brew Board's customer app doesn't need its own UI code. A thin native shell, a
-    WKWebView on iOS and a WebView on Android, loads the same Clojure routes the browser does. The
-    server tells the shell how to navigate, and a small bridge carries native features in and out as
-    events and signals. A new screen ships with a server deploy. Here is how it works, and what it
-    costs.</p>
+  <p class="dek">Here's the dirty little secret about Brew Board's customer app: it doesn't need any UI
+    code of its own. None. You wrap a WKWebView (iOS) or a WebView (Android) in the thinnest native
+    shell you can get away with, point it at the same Clojure routes the browser already uses, and let
+    the server tell it how to navigate. A tiny bridge ferries native features back and forth as events
+    and signals. New screen? That's a server deploy. Here's how it works, and, because nothing in this
+    life is free, what it'll cost you.</p>
 
   <div data-warmup></div>
 
-  <p>Picture the app this replaces, because it is the usual one. Brew Board's customers order on their
-    phones through a React Native app. It has its own screens (menu, drink customizer, cart, order
-    status), its own client state (a store holding the cart and the orders), and its own API: a set of
-    JSON endpoints written for the app. The barista board is a web page. So the same orders are
-    rendered twice, by two codebases in two languages, and every change to what a customer sees goes
-    through a build, App Review, and a rollout that some users won't install for weeks. Meanwhile the
-    server has to keep the old JSON shapes working for them.</p>
+  <p>Let me paint you a picture of the app we're replacing. I bet you've seen it, because it's the one
+    everybody builds. Brew Board's customers order on their phones through a React Native app. It has
+    its own screens (menu, drink customizer, cart, order status). It has its own client state (a store
+    holding the cart and the orders). And it has its own API: a pile of JSON endpoints that exist for
+    no reason other than to feed that app. Meanwhile, the barista board is a plain web page. So the
+    same orders get rendered twice, by two codebases, in two languages, which is the software
+    equivalent of hiring two crews to paint the same fence from opposite sides. And every single
+    change to what a customer sees has to run the gauntlet: a build, App Review, and then a rollout
+    that some of your users will cheerfully ignore for weeks. Which means your server gets to keep the
+    old JSON shapes on life support for them. Indefinitely.</p>
 
-  <p>Parts 1–6 built the web customer page: server-rendered views, signals for input, commands that
-    change an atom, and a live stream that keeps every open view current. Everything that page does,
-    the phone app does too. The question is how little native code it takes to put that page in a
-    store app that still feels like an app.</p>
+  <p>Now. Parts 1–6 built the web customer page: server-rendered views, signals for input, commands
+    that change an atom, and a live stream that keeps every open view current. Everything that page
+    does, the phone app does too. <em>Everything.</em> So the interesting question isn't whether you
+    can put that page in a store app. Of course you can. The interesting question is how little native
+    code it takes to do it so that the result still feels like an app, and not like a bookmark wearing
+    a trench coat.</p>
 
-  <h2>The shell</h2>
+  <h2>The shell (or: how to write as little Swift as possible)</h2>
 
-  <p>The shell is a native app whose screens are web views. It does the things only native code can
-    do, and nothing else:</p>
+  <p>The shell is a native app whose screens are web views. Its job description is short, and I want
+    to dwell on that for a second, because the whole trick only works if it <em>stays</em> short. It
+    does the things only native code can do, and nothing else:</p>
 
   <ul>
-    <li><b>Navigation chrome.</b> A native navigation bar, back gesture and modal sheets. Each screen in
-      the native stack is a web view showing one URL.</li>
+    <li><b>Navigation chrome.</b> A native navigation bar, the back gesture, modal sheets: the stuff
+      your users' thumbs have been trained on for years. Each screen in the native stack is a web view
+      showing one URL.</li>
     <li><b>Native capabilities.</b> Push notification registration, haptics, local notifications, and
-      later the camera or the wallet, each reached through the bridge.</li>
-    <li><b>Identity.</b> It appends <code>BrewShell/1</code> to the web view's User-Agent, so the
-      server knows when it's rendering for the shell and which shell version it's talking to.</li>
+      later on the camera or the wallet. Each one is reached through the bridge, which we'll get
+      to.</li>
+    <li><b>Identity.</b> It appends <code>BrewShell/1</code> to the web view's User-Agent. That's the
+      shell saying "hi, it's me," so the server knows when it's rendering for the shell, and which
+      version of the shell it's talking to. (Hang onto that version number. It turns out to matter a
+      lot.)</li>
   </ul>
 
-  <p>What the shell does <em>not</em> contain: any Brew Board screen, any drink, any price, any
-    knowledge of orders. Those are all server routes, the ones you already have.</p>
+  <p>And here's what the shell does <em>not</em> contain, which is honestly the more important list:
+    any Brew Board screen. Any drink. Any price. Any knowledge whatsoever of orders. Those are all
+    server routes, and you already wrote them.</p>
 
-  <p>On the server, the first change is one predicate and a layout switch:</p>
+  <p>On the server, the first change is almost embarrassingly small. One predicate and a layout
+    switch:</p>
 
 <pre><code class="language-clojure">(defn shell-request? [req]
   (boolean (some-> (get-in req [:headers "user-agent"])
@@ -90,24 +103,27 @@
           (when stream-url [:div {:data-init (str "@get('" stream-url "', {retry: 'always'})")}])
           view]])))</code></pre>
   <p class="caption">From <code>lesson07.native-shell</code>. Handlers call it with
-    <code>:shell? (shell-request? req)</code>. Note <code>{retry: 'always'}</code> on the stream:
-    part 6's advice for streams that the server may end cleanly, e.g. on a deploy. The tab id is
-    part 6's too; a web view is a tab like any other, with its own draft. (A shell loading
-    <code>https://</code> is a secure context, so <code>crypto.randomUUID()</code> is there.)</p>
+    <code>:shell? (shell-request? req)</code>. Notice <code>{retry: 'always'}</code> on the stream:
+    that's part 6's advice for streams the server might end cleanly, say on a deploy. The tab id is
+    part 6's too. A web view is a tab like any other, with its own draft. (And since a shell loading
+    <code>https://</code> is a secure context, <code>crypto.randomUUID()</code> is right there for
+    you.)</p>
 
-  <p>In the shell, the web nav goes (the shell has a native one), and nothing else changes. The
-    <code>#app</code> view, the live stream, the drop-down and the commands are byte-for-byte the
-    same. (A real app would also add <code>viewport-fit=cover</code> and CSS
-    <code>env(safe-area-inset-*)</code> padding to keep content clear of the notch and home
-    indicator. The toy doesn't.)</p>
+  <p>In the shell, the web nav goes away, because the shell has a native one, and… that's it. That's
+    the whole diff. The <code>#app</code> view, the live stream, the drop-down and the commands are
+    byte-for-byte the same. This is the part that should make you grin. (A real app would also add
+    <code>viewport-fit=cover</code> and CSS <code>env(safe-area-inset-*)</code> padding to keep
+    content out from under the notch and the home indicator. The toy doesn't bother. It's a
+    toy.)</p>
 
   <h2>Navigation is served, not compiled in</h2>
 
-  <p>When a link in a web view is tapped, the shell intercepts the navigation (on iOS, the
-    <code>WKNavigationDelegate</code> decides each navigation's policy; on Android,
-    <code>WebViewClient.shouldOverrideUrlLoading</code>). It cancels the in-page load and decides how
-    to present the URL: push a new screen onto the stack, show it as a modal, or reset to the root.
-    The rules for that decision come from the server:</p>
+  <p>OK, so what happens when somebody taps a link inside one of these web views? The shell
+    intercepts the navigation. On iOS the <code>WKNavigationDelegate</code> gets to decide each
+    navigation's policy; on Android it's <code>WebViewClient.shouldOverrideUrlLoading</code>. The
+    shell cancels the in-page load and makes a call about how to present the URL: push a new screen
+    onto the stack, show it as a modal, or reset to the root. And here's the part I love. The rules
+    for that decision don't live in the app. They come from the server:</p>
 
 <pre><code class="language-json">GET /native/path-config
 
@@ -116,31 +132,38 @@
   {"patterns": ["^/orders/\\d+$"], "presentation": "push"}
 ]}</code></pre>
 
-  <p>The shell fetches this on launch and matches each tapped URL's path against the patterns in
-    order. The first match wins, and a path that matches nothing is pushed. <code>/orders/1</code> is a real route, <code>GET /orders/:id</code>,
-    a small page showing one of Ada's orders, and when she taps it in her order list the shell pushes it
-    as a new screen with a native back button. Because the rules come from the server, changing them
-    is a server deploy. Present order pages as a sheet instead? Change <code>"push"</code> to
-    <code>"modal"</code> (both reference shells in <code>native/</code> handle it). Add an order history screen? Render
-    <code>/orders/history</code>, add a pattern, link to it.</p>
+  <p>The shell fetches this on launch and matches each tapped URL's path against the patterns, in
+    order. First match wins, and a path that matches nothing gets pushed. <code>/orders/1</code> is a
+    real route, <code>GET /orders/:id</code>, a little page showing one of Ada's orders. When she taps
+    it in her order list, the shell pushes it as a new screen with a native back button, exactly the
+    way a "real" app would. And because the rules come from the server, changing them is a server
+    deploy. Not a release. A <em>deploy</em>. Want order pages as a sheet instead? Change
+    <code>"push"</code> to <code>"modal"</code> (both reference shells in <code>native/</code> handle
+    it). Want an order history screen? Render <code>/orders/history</code>, add a pattern, link to it.
+    Go get lunch. Nobody had to talk to Apple.</p>
 
-  <div class="compare" data-label="How Hotwire Native does it"><p>Hotwire Native (37signals' iOS and
-    Android libraries for wrapping Turbo apps) uses the same idea, which is where ours comes from. Its
-    path configuration is JSON with <code>rules</code>, each a list of <code>patterns</code> and a
-    <code>properties</code> map. In their demo, <code>"context": "modal"</code> presents forms as
-    modals, <code>"view_controller": "numbers"</code> routes a path to a fully native screen, and
+  <div class="compare" data-label="How Hotwire Native does it"><p>Credit where it's due: this idea
+    isn't ours. It comes from Hotwire Native, 37signals' iOS and Android libraries for wrapping Turbo
+    apps. Its path configuration is JSON with <code>rules</code>, each a list of
+    <code>patterns</code> plus a <code>properties</code> map. In their demo,
+    <code>"context": "modal"</code> presents forms as modals,
+    <code>"view_controller": "numbers"</code> routes a path to a fully native screen, and
     <code>"presentation": "clear_all"</code> on <code>^/$</code> resets the stacks. It loads the
-    configuration from a bundled file and a remote URL. One difference: Hotwire Native on iOS moves a
-    <em>single</em> WKWebView between view controllers, rather than one web view per screen as in our
-    toy, which saves memory and keeps one JavaScript context alive.</p></div>
+    configuration from a bundled file and from a remote URL. One real difference: Hotwire Native on
+    iOS moves a <em>single</em> WKWebView between view controllers, instead of one web view per screen
+    the way our toy does. That saves memory and keeps one JavaScript context alive, which is exactly
+    the kind of thing you do after you've actually shipped one of these.</p></div>
 
   <h2>The bridge</h2>
 
-  <p>A web view runs your page's JavaScript, and both platforms give you a channel between that
-    JavaScript and native code. Brew Board's bridge is a handful of lines on each side.</p>
+  <p>A web view runs your page's JavaScript, and both platforms hand you a channel between that
+    JavaScript and native code. People tend to picture "the bridge" as some enormous slab of
+    infrastructure with its own team and its own on-call rotation. Brew Board's is a handful of lines
+    on each side. A <em>handful</em>. You could fit it on an index card, if you still own index
+    cards.</p>
 
-  <p><b>Web → native.</b> The page defines one function. It forwards a message to whichever native
-    channel exists, and does nothing in a plain browser:</p>
+  <p><b>Web → native.</b> The page defines exactly one function. It forwards a message to whichever
+    native channel happens to exist, and in a plain browser it shrugs and does nothing:</p>
 
 <pre><code class="language-html">&lt;script&gt;
   window.BrewShell = {
@@ -154,8 +177,9 @@
   <p>On iOS, <code>brew</code> is a <code>WKScriptMessageHandler</code> the shell registered on the
     web view's <code>WKUserContentController</code>. On Android, <code>BrewAndroid</code> is an
     object added with <code>addJavascriptInterface</code>, whose <code>postMessage</code> is annotated
-    <code>@JavascriptInterface</code>. The server triggers it with part 2's
-    <code>execute-script</code>, which appends a self-removing <code>&lt;script&gt;</code> to the body:</p>
+    <code>@JavascriptInterface</code>. And how does the server pull the trigger? With an old friend,
+    part 2's <code>execute-script</code>, which appends a self-removing <code>&lt;script&gt;</code>
+    to the body:</p>
 
 <pre><code class="language-clojure">(defn bridge-script [msg]
   (sse/execute-script (str "window.BrewShell.post("
@@ -168,57 +192,67 @@
 ;; data: mode append
 ;; data: elements &lt;script data-effect="el.remove()"&gt;window.BrewShell.post({"type":"haptic","style":"success"})&lt;/script&gt;</code></pre>
 
-  <p>The <code>string/replace</code> is not decoration. The message can contain text a user typed (a
-    customer's name), and the HTML parser ends a <code>&lt;script&gt;</code> at the first
-    <code>&lt;/script</code>, whatever JSON thinks. A customer named <code>&lt;/script&gt;</code>
-    would close the tag early, and whatever follows would be parsed as HTML. <code>&lt;\/</code>
-    means the same thing in a JavaScript string, but it can't end the tag. The exercise test checks
-    exactly that name.</p>
+  <p>Now, that <code>string/replace</code> is not decoration, and if you take one paranoid habit
+    away from this post, make it this one. The message can contain text a user typed, like a
+    customer's name. And the HTML parser ends a <code>&lt;script&gt;</code> at the first
+    <code>&lt;/script</code>, period, whatever JSON thinks about it. The HTML parser does not care
+    about your JSON. It has never cared about your JSON. So a customer named
+    <code>&lt;/script&gt;</code> would close the tag early, everything after it would be parsed as
+    HTML, and now you're having a very bad day. <code>&lt;\/</code> means the same thing inside a
+    JavaScript string, but it can't end the tag. The exercise test checks exactly that name, because
+    of course it does.</p>
 
-  <p><b>Native → web.</b> The shell dispatches a DOM event on <code>window</code> (iOS
-    <code>evaluateJavaScript</code>, Android <code>evaluateJavascript</code>):</p>
+  <p><b>Native → web.</b> Going the other way, the shell dispatches a DOM event on
+    <code>window</code> (iOS <code>evaluateJavaScript</code>, Android
+    <code>evaluateJavascript</code>; yes, the capitalization differs, because mobile platforms like
+    to keep you on your toes):</p>
 
 <pre><code class="language-js">window.dispatchEvent(new CustomEvent('brew:native', {detail: {type: 'push-token', token: 'a1b2…'}}))</code></pre>
 
-  <p>and the page handles it with an ordinary Datastar attribute, on a <code>&lt;div&gt;</code> that
-    every page renders:</p>
+  <p>and the page handles it with a perfectly ordinary Datastar attribute, on a
+    <code>&lt;div&gt;</code> that every page renders:</p>
 
 <pre><code class="language-html">&lt;div data-on:brew:native__window="evt.detail.type === 'push-token'
     &amp;&amp; ($pushToken = evt.detail.token,
         @post('/native/device', {filterSignals: {include: /^pushToken$/}}))"&gt;&lt;/div&gt;</code></pre>
-  <p class="caption">One expression: <code>&amp;&amp;</code> guards, and the comma operator sequences
-    the assignment and the post. That is the lesson's style. A <code>;</code>-separated version, or an
-    <code>if</code> block, works just as well in <code>data-on</code>: we ran
-    <code>if (…) { $pushToken = …; $count = $count + 1 }</code> against the v1.0.4 bundle. Datastar
-    splits at <code>;</code> only for attributes that return a value, such as
-    <code>data-computed</code>, so that it can return the last statement.</p>
+  <p class="caption">It's one expression: <code>&amp;&amp;</code> guards, and the comma operator
+    sequences the assignment and the post. That's the lesson's style, not a requirement. A
+    <code>;</code>-separated version, or an <code>if</code> block, works just as well in
+    <code>data-on</code>: we ran <code>if (…) { $pushToken = …; $count = $count + 1 }</code> against
+    the v1.0.4 bundle to be sure. Datastar splits at <code>;</code> only for attributes that return a
+    value, such as <code>data-computed</code>, so that it can return the last statement.</p>
 
-  <p>We checked that this key works in Datastar's source. The attribute key is split at the
-    <em>first</em> colon (<code>on</code> / <code>brew:native</code>), the <code>__window</code>
-    modifier puts the listener on <code>window</code>, and <code>data-on</code> leaves the event name
-    alone apart from an optional <code>__case</code> modifier, so the listener is for
-    <code>brew:native</code> exactly. <code>evt</code> is the event. Setting <code>$pushToken</code>
-    and posting means the token arrives at <code>POST /native/device</code> as an ordinary signal, read
-    by the same <code>read-signals</code> as everything else, and stored as
-    <code>:devices {sid token}</code> by a <code>:register-device</code> command. The
-    <code>filterSignals</code> option keeps the rest of the page's signals (the draft, the name) out
-    of that request. From the server's side, native features are just more signals and commands.</p>
+  <p>Is that attribute key even legal? We didn't want to guess, so we went and read Datastar's
+    source. The attribute key is split at the <em>first</em> colon (<code>on</code> /
+    <code>brew:native</code>). The <code>__window</code> modifier puts the listener on
+    <code>window</code>. And <code>data-on</code> leaves the event name alone, apart from an optional
+    <code>__case</code> modifier, so the listener is for <code>brew:native</code> exactly.
+    <code>evt</code> is the event. Setting <code>$pushToken</code> and posting means the token
+    arrives at <code>POST /native/device</code> as an ordinary signal, read by the same
+    <code>read-signals</code> as everything else, and stored as <code>:devices {sid token}</code> by
+    a <code>:register-device</code> command. The <code>filterSignals</code> option keeps the rest of
+    the page's signals (the draft, the name) out of that request. And this is the punchline of the
+    whole bridge, so let me say it plainly: from the server's side, native features are just more
+    signals and commands. There is no second architecture hiding in here.</p>
 
-  <div class="aside"><p>Only ever load your own origin in the shell. A message handler accepts messages
-    from whatever page is loaded, and an Android <code>addJavascriptInterface</code> object is visible
-    to every page and frame in that web view. Send other URLs to the system browser. On iOS, a
-    handler can also check <code>message.frameInfo.securityOrigin</code> before acting.</p></div>
+  <div class="aside"><p>Security, quickly, because this one bites: only ever load your own origin in
+    the shell. A message handler accepts messages from whatever page is loaded, and an Android
+    <code>addJavascriptInterface</code> object is visible to every page and frame in that web view.
+    Every single one. Send other URLs to the system browser. On iOS, a handler can also check
+    <code>message.frameInfo.securityOrigin</code> before acting.</p></div>
 
-  <p>Step through a session. The left side is the phone; the right side is what crossed the wire or
-    the bridge on that step.</p>
+  <p>Let's step through a session. The left side is the phone; the right side is whatever crossed the
+    wire or the bridge on that step.</p>
 
   <div id="viz-shell"></div>
 
   <h2>The payoff: "Ada, your order #1 is ready."</h2>
 
-  <p>Part 6 already sends Ada's whole view whenever her order changes. The shell adds one thing: when
-    an order turns <code>:ready</code>, her stream also carries a bridge script. The diff that decides
-    who to notify is a pure function of the old and new state, like everything else:</p>
+  <p>Here's where it gets fun. Part 6 already sends Ada her whole view whenever her order changes.
+    The shell adds exactly one thing: when an order turns <code>:ready</code>, her stream also carries
+    a bridge script. And the diff that decides who to notify is a pure function of the old and new
+    state, like everything else in this series. (I keep saying "like everything else." I'm going to
+    keep saying it, because it keeps being true.)</p>
 
 <pre><code class="language-clojure">(defn ready-notifications [old new]
   (for [{:keys [id sid customer status]} (vals (:orders new))
@@ -235,18 +269,21 @@
             (push! token message)))))))</code></pre>
   <p class="caption"><code>notify!</code> sends a <code>bridge-script</code>
     (<code>{:type "notify" … :haptic "success"}</code>) to every open stream of that
-    <code>sid</code> (every tab of that customer: a notification is per customer, unlike the draft),
-    and returns the notifications that found no open stream. Those fall back to
+    <code>sid</code>. That's every tab of that customer, because a notification is per customer,
+    unlike the draft. It returns the notifications that found no open stream, and those fall back to
     <code>push!</code>.</p>
 
-  <p>When Sam taps Advance on order #1 for the second time, Ada's phone gets the re-rendered view
-    (status "ready") and a success haptic with a notification banner. It took no new screen, no new API
-    endpoint, and no new app version, provided the installed shell already knows the
-    <code>"notify"</code> message. That condition is the real boundary of this architecture.</p>
+  <p>So Sam taps Advance on order #1 for the second time, and Ada's phone gets the re-rendered view
+    (status "ready") plus a success haptic and a notification banner. Now count what that took. No
+    new screen. No new API endpoint. No new app version. Zero, zero, zero. With one condition, and I
+    want to draw a big red circle around it: the installed shell has to already know the
+    <code>"notify"</code> message. That condition is the real boundary of this architecture.
+    Everything else in this post is commentary on it.</p>
 
-  <p>One honest limit. A web view's stream only runs while the app is in the foreground. Part 6's rule
-    (a hidden page closes its <code>@get</code>) applies, and iOS suspends backgrounded apps anyway.
-    For "your order is ready" while the phone is in Ada's pocket, the server must send a real push
+  <p>And now the honest part, because I promised you one. A web view's stream only runs while the
+    app is in the foreground. Part 6's rule (a hidden page closes its <code>@get</code>) applies, and
+    iOS suspends backgrounded apps anyway, with all the sentimentality of a bouncer at closing time.
+    So for "your order is ready" while the phone is in Ada's pocket, the server must send a real push
     notification (APNs on iOS, FCM on Android) to the token it got through
     <code>/native/device</code>. That's the fallback in <code>watch!</code>: when
     <code>notify!</code> finds no open stream for Ada, the toy's <code>push!</code> prints what a
@@ -255,100 +292,111 @@
 
   <h2>What ships without a release</h2>
 
-  <p>The rule: anything that is HTML, signals, routes, path rules, or a bridge message the installed
-    shell already understands ships with a deploy. Anything that needs new native code ships with a
-    store release. The <code>/1</code> in <code>BrewShell/1</code> is there so the server can tell
-    which messages a given install understands, and send a <code>"scan-qr"</code> message only to
-    shells that can handle it.</p>
+  <p>Here's the rule, and it's short enough to write on your hand: anything that is HTML, signals,
+    routes, path rules, or a bridge message the installed shell already understands ships with a
+    deploy. Anything that needs new native code ships with a store release. That's it. That's the
+    rule. The <code>/1</code> in <code>BrewShell/1</code> is there so the server can tell which
+    messages a given install understands, and send a <code>"scan-qr"</code> message only to shells
+    that can actually handle it. (Remember when I said to hang onto that version number? This is
+    why.)</p>
 
   <div id="predict-release"></div>
 
   <div id="viz-sorter"></div>
 
-  <p>Apple's guidelines bear on this in two places, and it is worth reading them rather than relying
-    on folklore. Guideline <b>4.2 Minimum Functionality</b> says "your app should include features,
-    content, and UI that elevate it beyond a repackaged website," and 4.2.2 says apps shouldn't
-    primarily be "web clippings, content aggregators, or a collection of links." A shell that only
-    loads a URL is the thing 4.2 describes. Native navigation, push notifications, haptics and real
-    native features are what make the difference. Guideline <b>2.5.2</b> says apps may not "download,
-    install, or execute code which introduces or changes features or functionality of the app." Web
-    content in a WebKit view is how every hybrid app works (2.5.6 requires WebKit for browsing the
-    web, and 4.7 explicitly allows HTML5 mini apps under conditions). But using server deploys to
-    turn the app into something different from what was reviewed is exactly what 2.5.2 is about.
-    Ship new screens of the same app, not a new app. (Quotes from Apple's
+  <p>Now let's talk about Apple, because somebody always brings up Apple, usually in a hushed voice,
+    usually with a story about a friend of a friend whose app got rejected. Apple's guidelines bear
+    on this in two places, and it's worth actually reading them instead of running on folklore.
+    Guideline <b>4.2 Minimum Functionality</b> says "your app should include features, content, and
+    UI that elevate it beyond a repackaged website," and 4.2.2 says apps shouldn't primarily be "web
+    clippings, content aggregators, or a collection of links." A shell that only loads a URL is
+    precisely the thing 4.2 describes. Native navigation, push notifications, haptics and real native
+    features are what make the difference. Then there's Guideline <b>2.5.2</b>, which says apps may
+    not "download, install, or execute code which introduces or changes features or functionality of
+    the app." Web content in a WebKit view is how every hybrid app works (2.5.6 requires WebKit for
+    browsing the web, and 4.7 explicitly allows HTML5 mini apps under conditions). But using server
+    deploys to turn the app into something different from what was reviewed? That is exactly what
+    2.5.2 is about. Ship new screens of the same app, not a new app. (Quotes from Apple's
     <a href="https://developer.apple.com/app-store/review/guidelines/">App Review Guidelines</a>,
-    checked October 2026. Review is a human judgment, so treat this as risk to manage, not a rule
-    you can rely on.)</p>
+    checked October 2026. Review is a human judgment, made by humans, on a schedule you don't
+    control, so treat all of this as risk to manage, not a rule you can lean on.)</p>
 
   <h2>What you give up</h2>
 
-  <p>This is not free, and the trade-offs decide whether it fits.</p>
+  <p>I'd be lying if I told you this was free, and you'd find out anyway, probably at the worst
+    possible moment. The trade-offs are what decide whether it fits:</p>
 
   <ul>
-    <li><b>Offline.</b> Every screen is rendered by the server, so no network means no screen. A
-      React Native app can keep its store and show cached orders. For a coffee order, which needs the
-      shop's server anyway, that's fine. For a field app used in basements, it isn't, unless you build
-      the offline screens natively.</li>
-    <li><b>Latency.</b> Every command is a round trip, and on a phone network that is noticeable.
-      Signals soften it: local feedback (<code>data-indicator</code>, a <code>data-show</code> spinner,
-      a <code>data-class</code> pressed state) happens instantly in the browser, and the server's
-      answer lands a moment later. But a client-side app can be truly optimistic in ways this
-      architecture discourages.</li>
+    <li><b>Offline.</b> Every screen is rendered by the server, so no network means no screen. Full
+      stop. A React Native app can keep its store and show cached orders. For a coffee order, which
+      needs the shop's server anyway, that's fine; you weren't going to get your latte offline. For a
+      field app used in basements, it isn't, unless you build the offline screens natively.</li>
+    <li><b>Latency.</b> Every command is a round trip, and on a phone network that round trip is
+      noticeable. Signals soften it: local feedback (<code>data-indicator</code>, a
+      <code>data-show</code> spinner, a <code>data-class</code> pressed state) happens instantly in
+      the browser, and the server's answer lands a moment later. But a client-side app can be truly
+      optimistic in ways this architecture actively discourages, and you should know that going
+      in.</li>
     <li><b>Gestures and animation.</b> Swipe-to-dismiss cards, drag-to-reorder, physics-driven
-      transitions tied to the finger: these belong in native code or React Native, and a web view
-      gives you CSS transitions and view transitions instead. Native navigation transitions come back
-      because the shell does them, but in-screen interaction is web-grade.</li>
+      transitions glued to the user's finger: these belong in native code or React Native. A web view
+      gives you CSS transitions and view transitions instead, which are nice, but they're not the
+      same thing, and your users' thumbs can tell. Native navigation transitions come back because
+      the shell does them, but in-screen interaction is web-grade.</li>
     <li><b>Platform conventions.</b> A web view renders your CSS, not UIKit or Material components.
-      Users notice date pickers, lists, and text fields that behave slightly differently. Native
-      controls where it matters (a native date picker via the bridge, say) cost native code and a
-      release.</li>
+      Users notice date pickers, lists, and text fields that behave slightly differently, even when
+      they can't tell you what's wrong. Native controls where it matters (a native date picker via
+      the bridge, say) cost native code and a release.</li>
     <li><b>Background work.</b> No live stream in the background. Anything that must happen while
-      the app is closed (push, location, sync) is native.</li>
+      the app is closed (push, location, sync) is native. There's no clever way around it.</li>
   </ul>
 
-  <p><b>When to keep React Native</b> (or go fully native): offline-first apps, apps whose core is
-    rich touch interaction (maps, editors, media), apps with heavy on-device computation, and teams
-    whose real product is the mobile client with the server as a data API. Brew Board is none of
-    those. It's a set of forms and lists over shared, live server state, which is the shape where
-    sending HTML wins most clearly.</p>
+  <p>So <b>when should you keep React Native</b> (or go fully native)? Offline-first apps. Apps whose
+    core is rich touch interaction (maps, editors, media). Apps with heavy on-device computation. And
+    teams whose real product is the mobile client, with the server as a data API. If that's you, more
+    power to you; carry on. Brew Board is none of those. It's a set of forms and lists over shared,
+    live server state, which happens to be the exact shape where sending HTML wins most clearly.</p>
 
-  <div class="compare" data-label="The middle ground: Hyperview"><p>Hyperview (from Instawork) keeps
-    the server-driven model but drops the web view. The server sends Hyperview XML (HXML), a
-    hypermedia format designed around mobile UI patterns, and a React Native client renders it with
-    native components. Its pitch is the same as ours ("update your apps instantly by deploying your
-    backend"), traded for a new markup language instead of HTML. It's worth a look when native
-    controls matter more than reusing the web page.</p></div>
+  <div class="compare" data-label="The middle ground: Hyperview"><p>If you want something in
+    between, look at Hyperview, from Instawork. It keeps the server-driven model but drops the web
+    view entirely. The server sends Hyperview XML (HXML), a hypermedia format designed around mobile
+    UI patterns, and a React Native client renders it with native components. Its pitch is the same
+    as ours ("update your apps instantly by deploying your backend"), and the price is a new markup
+    language instead of HTML. It's worth a look when native controls matter more to you than reusing
+    the web page.</p></div>
 
   <h2>What the series built</h2>
 
-  <p>Look back at what the native app needed from the server: a predicate on the User-Agent, a JSON
-    file of path rules, one route for the push token, and a pure function deciding who to notify. Every
-    screen it shows came from parts 1–6: hand-written SSE events (part 2), signals for what the user
-    is doing (part 3), the server owning everything shared (part 4), a small route table of queries
-    and commands (part 5), and one stream per page that re-renders the whole view and morphs it in
-    (part 6). The mobile app is the web app, plus a shell.</p>
+  <p>Let's step back and look at what the native app actually needed from the server. A predicate on
+    the User-Agent. A JSON file of path rules. One route for the push token. And a pure function
+    deciding who to notify. That's the whole list. Every screen it shows came from parts 1–6:
+    hand-written SSE events (part 2), signals for what the user is doing (part 3), the server owning
+    everything shared (part 4), a small route table of queries and commands (part 5), and one stream
+    per page that re-renders the whole view and morphs it in (part 6). The mobile app is the web app,
+    plus a shell. I told you it was a dirty little secret.</p>
 
-  <div class="code-ref"><p><code>clojure/src/lesson07/native_shell.clj</code> (ns
-    <code>lesson07.native-shell</code>), tests in
+  <div class="code-ref"><p>The code lives in <code>clojure/src/lesson07/native_shell.clj</code> (ns
+    <code>lesson07.native-shell</code>), with tests in
     <code>clojure/test/lesson07/native_shell_test.clj</code>. The demo requests the same page with and
     without <code>BrewShell/1</code>, fetches <code>/native/path-config</code>, posts a push token, and
-    advances one order to ready while Ada's stream is open (a bridge script comes down it) and another
-    after her stream has closed (the push fallback):
+    advances one order to ready while Ada's stream is open (watch a bridge script come down it) and
+    another after her stream has closed (hello, push fallback):
     <code>cd clojure &amp;&amp; clojure -M -m lesson07.native-shell</code>. Reference shells are in
-    <code>native/ios</code> and <code>native/android</code> (see <code>native/README.md</code>; not
-    built in CI).</p></div>
+    <code>native/ios</code> and <code>native/android</code> (see <code>native/README.md</code>; they
+    aren't built in CI).</p></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>shell-request</code> (the predicate <code>shell-request?</code>),
-    <code>bridge-script</code> and <code>ready-notifications</code>. Hints are on the
-    <a href="../exercises.html">exercises page</a>.</p>
+  <div class="build-it"><p>Your turn. The exercise track for this part is <code>shell-request</code>
+    (the predicate <code>shell-request?</code>), <code>bridge-script</code> and
+    <code>ready-notifications</code>. Hints are on the <a href="../exercises.html">exercises page</a>,
+    for when you get stuck. You'll be fine.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson07.native-shell-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>A native shell is a stack of web views showing your server's routes, plus
-    navigation rules it downloads, plus a bridge: native → web as DOM events that become signals, web →
-    native as scripts the server sends. Screens, layouts, and anything the installed shell already
-    understands ship with a deploy. New native capabilities ship with a release, and the shell version
-    in the User-Agent tells the server which is which. You give up offline use, finger-driven
-    interaction, and some platform polish, so it fits apps made of forms and lists over live server
-    state.</p></div>
+  <div class="takeaway"><p>If you remember one paragraph, make it this one. A native shell is a stack
+    of web views showing your server's routes, plus navigation rules it downloads, plus a bridge:
+    native → web as DOM events that become signals, web → native as scripts the server sends.
+    Screens, layouts, and anything the installed shell already understands ship with a deploy. New
+    native capabilities ship with a release, and the shell version in the User-Agent tells the server
+    which is which. You give up offline use, finger-driven interaction, and some platform polish, so
+    it fits apps made of forms and lists over live server state. Which describes more apps than
+    you'd think.</p></div>

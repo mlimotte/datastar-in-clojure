@@ -37,32 +37,37 @@
   .rc-page.bad { color: var(--bad); font-weight: 600; }
 </style>
   <h1>Field guide: practices and trade-offs</h1>
-  <p class="dek"><b>Advanced.</b> Parts 1–7 built Brew Board one way. This part steps back. First, two
-    practices that decide where code goes: the decision ladder, and how navigation and the URL work
-    when Datastar has no history API. Then six places where a reasonable app could choose the other
-    way, each with what it costs and what Brew Board chose.</p>
+  <p class="dek"><b>Advanced.</b> Parts 1–7 built Brew Board one way: our way. This part is where we put
+    the tools down, step back from the workbench, and squint at what we made. First come two practices
+    that decide where your code goes: the decision ladder, and how navigation and the URL work when
+    Datastar flat-out refuses to have a history API. Then come six places where a perfectly reasonable
+    app could have gone the other way, each with what it costs and what Brew Board chose. No
+    sacred cows. Well, maybe one.</p>
 
   <div data-warmup></div>
 
-  <p>Most of this part came from setting the course next to a production Datastar codebase and asking,
-    rule by rule, which of its rules were about that app and which were about Datastar. Some of what
-    survived is already in the earlier parts:</p>
+  <p>Here's where most of this part came from. We set the course down next to a production Datastar
+    codebase and went through it rule by rule, asking one rude question of each: are you about
+    <em>that app</em>, or are you about <em>Datastar</em>? A lot of rules turned out to be local
+    customs. Some survived the interrogation, and you've already met those in the earlier parts:</p>
   <ul>
       <li>the server renders error messages as HTML (parts 3–7)</li>
       <li>the browser never computes a price (part 3)</li>
       <li>a tab gets its own id (part 6)</li>
       <li>signal count must not grow with the data (part 4)</li>
   </ul>
-  <p>What's left is bigger than a tip box, and it's here.</p>
+  <p>What's left over is too big to stuff into a tip box, so it lives here.</p>
 
-  <p>There are no exercises in this part. Lesson 8 is a demo: it answers the same read two ways,
-    sends the same change two ways, and races two search requests. It prints the bytes so the
-    numbers below are measured, not estimated.</p>
+  <p>Fair warning: there are no exercises in this part. Lesson 8 is a demo, and a slightly
+    obsessive one. It answers the same read two ways, sends the same change two ways, and races two
+    search requests against each other like slot cars. It prints the bytes, too, so every number
+    below is measured, not made up over coffee.</p>
 
   <h2>The decision ladder</h2>
 
-  <p>Every interaction on a page needs somewhere to live. The ladder is the order in which to try
-    homes:</p>
+  <p>Every interaction on a page has to live <em>somewhere</em>. It's like a stray cat: it will move
+    in whether you planned for it or not, so you might as well pick the house. The ladder is the
+    order in which to try houses:</p>
 
   <div class="table-wrap"><table class="data">
     <thead><tr><th>rung</th><th>mechanism</th><th>who owns the state</th><th>Brew Board example</th></tr></thead>
@@ -75,25 +80,30 @@
     </tbody>
   </table></div>
 
-  <p>Try the rungs top to bottom and stop at the first that does the job. When you skip a rung for a
-    reason a reader wouldn't guess, leave a one-line comment saying why: "<code>data-init</code> focus,
-    not <code>autofocus</code>: autofocus doesn't fire again after a morph."</p>
+  <p>The rule is dead simple: try the rungs top to bottom and stop at the first one that does the
+    job. The only extra bit of discipline is this. When you skip a rung for a reason the next reader
+    wouldn't guess, leave them a one-line comment saying why. Something like: "<code>data-init</code> focus,
+    not <code>autofocus</code>: autofocus doesn't fire again after a morph." Future-you will want to
+    send present-you a fruit basket.</p>
 
-  <p>The order isn't about taste. Each rung down adds state that you own and have to keep correct:</p>
+  <p>Now, you might think the order is just my taste talking. It isn't. Each rung you climb down
+    adds state that <em>you</em> own and have to keep correct, forever, with your own two hands:</p>
   <ul>
-    <li><b>Rung 1</b> keeps everything in one process, one language, and one test suite.</li>
-    <li><b>Rung 2</b> hands the state to the browser, which also gives you keyboard handling,
-      accessibility and Back/Forward for free.</li>
-    <li><b>Rung 3</b> has no state at all.</li>
-    <li><b>Rung 4</b> is declarative, but every <code>data-*</code> expression is JavaScript living in
-      an attribute, and anything it computes is a client-side copy of something.</li>
-    <li><b>Rung 5</b> is yours entirely.</li>
+    <li><b>Rung 1</b> keeps everything in one process, one language, and one test suite. Lovely.</li>
+    <li><b>Rung 2</b> hands the state to the browser, and the browser throws in keyboard handling,
+      accessibility and Back/Forward for free, like a dealership that keeps adding floor mats.</li>
+    <li><b>Rung 3</b> has no state at all. You can't get state wrong if there isn't any.</li>
+    <li><b>Rung 4</b> is declarative, sure, but don't kid yourself: every <code>data-*</code> expression
+      is JavaScript living in an attribute, and anything it computes is a client-side copy of
+      something.</li>
+    <li><b>Rung 5</b> is yours entirely. Every bug in it has your name on it.</li>
   </ul>
 
-  <p>Rung 1 is first because Datastar makes it cheap. It is not "always ask the server": a request
-    per keystroke to learn something the browser already knows is a reason to skip it. The rule
-    from part 3 still holds on rung 4: an expression may count, format, toggle and focus, but it
-    never computes a business value. Pick an interaction and step down the ladder:</p>
+  <p>Rung 1 sits at the top because Datastar makes it cheap. That does <em>not</em> mean "always ask
+    the server." Firing off a request per keystroke to learn something the browser already knows is
+    a perfectly good reason to skip it. And the rule from part 3 still holds down on rung 4: an
+    expression may count, format, toggle and focus, but it never, ever computes a business value. Go
+    ahead, pick an interaction and walk it down the ladder:</p>
 
   <div id="viz-ladder"></div>
 
@@ -101,115 +111,129 @@
 
   <h3>Native HTML inside a re-rendered region</h3>
 
-  <p>Rung 2 has one catch in a whole-view app. When the user opens a <code>&lt;details&gt;</code>,
-    the browser adds an <code>open</code> attribute to it. The server's next render doesn't have that
-    attribute, because the server doesn't know the user opened anything. The morph copies attributes
-    from the new HTML and removes the ones the new HTML lacks (<code>morphNode</code> in
-    <code>patchElements.ts</code>), so the panel snaps shut on every update.</p>
+  <p>Rung 2 has exactly one catch in a whole-view app, and it's a sneaky one. When the user opens a
+    <code>&lt;details&gt;</code>, the browser quietly adds an <code>open</code> attribute to it. The
+    server's next render doesn't have that attribute, because the server has no idea the user opened
+    anything. Why would it? The morph copies attributes from the new HTML and removes the ones the new
+    HTML lacks (<code>morphNode</code> in <code>patchElements.ts</code>). So the panel snaps shut on
+    every update, like a clam that's been poked.</p>
 
-  <p>The fix is one attribute on the server-rendered element:</p>
+  <p>The fix is one attribute on the server-rendered element. One:</p>
 <pre><code class="language-clojure">[:details#receipt {:data-preserve-attr "open"}
  [:summary "Receipt"]
  [:p "Medium oat latte, $5.60"]]</code></pre>
-  <p class="caption"><code>data-preserve-attr</code> is read from the new HTML. It lists attributes
-    the morph must neither set nor remove, separated by spaces.</p>
+  <p class="caption"><code>data-preserve-attr</code> is read from the new HTML. It lists, separated by
+    spaces, the attributes the morph must keep its hands off: neither set them nor remove them.</p>
 
-  <p>Lesson 8's page has two receipts side by side, one with <code>data-preserve-attr</code> and
-    one without. Open both, click "Re-render receipts", and only the first stays open. A modal
-    <code>&lt;dialog&gt;</code> has the same issue, because <code>showModal()</code> sets
-    <code>open</code> too. A <code>popover</code>'s open state is not an attribute, so the morph
-    doesn't see it at all.</p>
+  <p>You can watch this happen. Lesson 8's page has two receipts side by side, one with
+    <code>data-preserve-attr</code> and one without. Open both, click "Re-render receipts", and only
+    the first one stays open. The other one slams shut. A modal <code>&lt;dialog&gt;</code> has the
+    same problem, because <code>showModal()</code> sets <code>open</code> too. A
+    <code>popover</code>, on the other hand, keeps its open state somewhere that isn't an attribute,
+    so the morph never even sees it. Lucky popover.</p>
 
   <h3>CSS before <code>data-show</code></h3>
 
-  <p>Parts 3–7 render error messages as server HTML. The leftover question is how to hide the
-    empty element so it takes no space. That's rung 3, not rung 4:</p>
+  <p>Parts 3–7 render error messages as server HTML, which settles the hard part. The leftover
+    question is a humble one: how do you hide the empty element so it doesn't take up space? Your
+    fingers will reach for rung 4. Slap them. That's a rung 3 job:</p>
 <pre><code class="language-css">#draft-error:empty { display: none; }                /* no message, no box */
 #cart:has(li) .empty-hint { display: none; }          /* "Add a drink to start" */</code></pre>
-  <p class="caption"><code>:empty</code> matches only an element with no children at all, not even
-    whitespace. Hiccup renders <code>[:p#draft-error]</code> as <code>&lt;p id="draft-error"&gt;&lt;/p&gt;</code>,
-    which matches.</p>
+  <p class="caption">One gotcha: <code>:empty</code> matches only an element with no children at all,
+    not even whitespace. Happily, Hiccup renders <code>[:p#draft-error]</code> as
+    <code>&lt;p id="draft-error"&gt;&lt;/p&gt;</code>, which matches.</p>
 
   <h3>Custom JS, enumerated</h3>
 
-  <p>Some things only rung 5 can do. Datastar has no attribute that talks to a native shell, and no
-    history API (next section). Keep what's left in one glue script per page, and list every item
-    in its header with the reason the lower rungs failed:</p>
+  <p>Some things only rung 5 can do, and there's no shame in that. Datastar has no attribute that
+    talks to a native shell, and no history API (more on that in a minute). So keep whatever's left
+    in one glue script per page, and, this is the important part, list every item in its header
+    along with the reason the lower rungs failed:</p>
 <pre><code class="language-javascript">// brew-glue.js: each item was tried against the ladder first.
 // 1. BrewShell.post (part 7): forwards bridge messages to WKWebView or the Android
 //    JavascriptInterface. No HTML, CSS or Datastar attribute reaches native code.
 // 2. History sync: mirrors #board-orders[data-query] into history.pushState.
 //    Datastar has no history primitive.</code></pre>
 
-  <p>The list is the point. A glue file that has to justify each entry stays at two or three
-    entries. One that doesn't turns into a second front end.</p>
+  <p>The list is the whole point. A glue file that has to justify each entry stays at two or three
+    entries, because justifying things is tedious and people avoid tedium. A glue file that
+    <em>doesn't</em> have to justify anything grows, slowly and then all at once, into a second front
+    end. And then you're right back where part 7 started, with two crews painting one fence.</p>
 
-  <h2>Navigation and the URL</h2>
+  <h2>Navigation and the URL (or: Datastar does not do history)</h2>
 
-  <p>Datastar doesn't touch history: there is no <code>pushState</code> or <code>popstate</code>
-    anywhere in its <code>library/src</code>. Use it inside a page, and use the browser between pages:</p>
+  <p>Datastar doesn't touch history. At all. Go look: there is no <code>pushState</code> or
+    <code>popstate</code> anywhere in its <code>library/src</code>. Some people find this alarming.
+    I find it refreshing. The deal is: use Datastar inside a page, and use the browser between
+    pages. The browser has been doing pages for thirty-odd years. It's pretty good at it.</p>
   <ul>
     <li><b>Between pages, use real links and full page loads.</b> Brew Board's <code>/</code>,
       <code>/board</code> and <code>/orders/:id</code> are pages, and an <code>&lt;a href&gt;</code>
-      to one of them is a plain link. Back, bookmarks, "open in new tab" and part 7's shell all
-      work because of that: the shell turns a link into a native screen push using the path
-      configuration the server serves.</li>
+      to one of them is a plain old link. Back, bookmarks, "open in new tab" and part 7's shell all
+      work <em>because</em> of that: the shell turns a link into a native screen push using the path
+      configuration the server serves. Break the links and you break all four.</li>
     <li><b>View state worth bookmarking goes in the URL.</b> That means filters, a page number, a
-      selected tab. The first choice is rung 2, a <code>&lt;form method="get"&gt;</code>. The
-      filter becomes a query string, the server renders the page for that query, and Back works
-      with no code. The cost is a full page load per change.</li>
+      selected tab. Your first choice is rung 2, a humble <code>&lt;form method="get"&gt;</code>. The
+      filter becomes a query string, the server renders the page for that query, and Back works with
+      zero code. The cost is a full page load per change, which is a real cost, but often a smaller
+      one than you'd think.</li>
   </ul>
 
-  <p>When a full load is too slow and you update in place, the URL needs help. The server stamps
-    the canonical query string it rendered on an element, a few lines of glue mirror it into
-    <code>pushState</code>, and Back is handled declaratively:</p>
+  <p>When a full load really is too slow and you update in place, the URL needs a little help. The
+    server stamps the canonical query string it rendered onto an element, a few lines of glue mirror
+    it into <code>pushState</code>, and Back is handled declaratively:</p>
 <pre><code class="language-html">&lt;section id="board-view" data-signals="{status: 'all'}"
          data-on:popstate__window="$status = new URLSearchParams(location.search).get('status') ?? 'all';
                                    @get('/board/orders')"&gt;
   &lt;ul id="board-orders" data-query="?status=making"&gt;…&lt;/ul&gt;
 &lt;/section&gt;</code></pre>
   <p class="caption">A sketch, not lesson code. <code>__window</code> attaches the listener to
-    <code>window</code>, where <code>popstate</code> fires. The view-state signal lives on a wrapper
-    <em>outside</em> the patched list, so a re-render never resets it.</p>
+    <code>window</code>, which is where <code>popstate</code> fires. Notice the view-state signal lives
+    on a wrapper <em>outside</em> the patched list, so a re-render can never reset it out from under
+    you.</p>
 
-  <p>A related trap: <b>URLs baked into server-rendered attributes</b>, like a pager's
-    <code>@get('/board/orders?page=2')</code>. Under a whole-view re-render they are fine, because
-    the pager is re-rendered with the view every time. Under targeted patches, a pager outside the
-    patched region keeps the URL it was first rendered with, and "next page" goes to the same page
-    forever. With targeted patches, keep view state in signals on a stable wrapper, have each
-    control change a signal, and send every refresh through one fetch path.</p>
+  <p>Now here's a related trap, and it's a nasty one: <b>URLs baked into server-rendered
+    attributes</b>, like a pager's <code>@get('/board/orders?page=2')</code>. Under a whole-view
+    re-render they're fine, because the pager gets re-rendered along with the view every time. Under
+    targeted patches, though, a pager outside the patched region keeps whatever URL it was first
+    rendered with. So "next page" goes to the same page. Forever. It's Groundhog Day with a
+    pagination widget. With targeted patches, keep view state in signals on a stable wrapper, have
+    each control change a signal, and send every refresh through one fetch path.</p>
 
   <div class="compare" data-label="How htmx does it">
-    <p>htmx builds history in. <code>hx-push-url</code> pushes the URL, a snapshot of the page's
-      history element is saved in <code>sessionStorage</code>, and its <code>popstate</code> handler
-      restores the snapshot. On a cache miss it re-fetches the URL with an
-      <code>HX-History-Restore-Request</code> header. Datastar left all of this out. In an app where
-      the server owns the view, Back asking the server again is usually what you want, and the glue
-      above is about ten lines. Part 7's native shell is the third model: the server publishes
-      navigation rules, and the shell owns the stack.</p>
+    <p>htmx went the other way and built history right in. <code>hx-push-url</code> pushes the URL, a
+      snapshot of the page's history element gets saved in <code>sessionStorage</code>, and its
+      <code>popstate</code> handler restores the snapshot. On a cache miss it re-fetches the URL with
+      an <code>HX-History-Restore-Request</code> header. Datastar left all of that out, on purpose. In
+      an app where the server owns the view, having Back just ask the server again is usually exactly
+      what you want, and the glue above is about ten lines. And part 7's native shell is a third model
+      entirely: the server publishes navigation rules, and the shell owns the stack.</p>
   </div>
 
   <h2>Six trade-offs</h2>
 
-  <p>For each of the six: when to pick each side, what it costs, and what Brew Board chose.</p>
+  <p>Here's where we stop handing down rules and start arguing. For each of the six: when you'd pick
+    each side, what it costs you, and what Brew Board chose. Reasonable people land on both sides of
+    most of these, and I'll tell you when that's the case.</p>
 
   <h3>1. Whole-view re-render or targeted patches</h3>
 
-  <p>Part 6 re-renders the whole <code>#app</code> on every change and lets the morph keep what
-    didn't change. The alternative is to send only the elements a change touched. Lesson 8 sends
-    "advance order #3" both ways on a four-row board: the whole board is <b>316 bytes</b> on the
-    wire, the targeted patch of <code>#order-3</code> is <b>114 bytes</b>. The more interesting
-    difference is what happens on screen.</p>
+  <p>Part 6 re-renders the whole <code>#app</code> on every change and trusts the morph to keep
+    whatever didn't change. The alternative is to send only the elements a change actually touched.
+    Lesson 8 sends "advance order #3" both ways on a four-row board. The whole board is <b>316 bytes</b>
+    on the wire; the targeted patch of <code>#order-3</code> is <b>114 bytes</b>. But honestly, the
+    bytes are the boring part. The interesting difference is what happens on screen.</p>
 
   <div id="predict-pointer"></div>
 
   <div id="viz-patch"></div>
 
-  <p>The morph keeps identity: <code>patchElements.ts</code> finds an element with a matching id
-    and moves it (<code>moveBefore</code> where the browser has it, <code>insertBefore</code>
-    otherwise) instead of rebuilding it. So listeners and the element's own state survive a
-    re-sort. Position on screen does not survive. If the server's sort order changes, rows move,
-    and whatever was under the user's pointer can change.</p>
+  <p>The morph keeps identity. <code>patchElements.ts</code> finds an element with a matching id and
+    moves it (<code>moveBefore</code> where the browser has it, <code>insertBefore</code> otherwise)
+    instead of tearing it down and rebuilding it. So listeners and the element's own state survive a
+    re-sort. What does <em>not</em> survive is position on screen. If the server's sort order changes,
+    rows move, and whatever was under the user's pointer a moment ago can be something else now.
+    That's how you get a barista tapping "done" on the wrong latte.</p>
 
   <div class="table-wrap"><table class="data">
     <thead><tr><th></th><th>whole view</th><th>targeted patches</th></tr></thead>
@@ -223,30 +247,32 @@
     </tbody>
   </table></div>
 
-  <p><b>Pick whole view</b> by default, especially for live views with several viewers. It is the
-    one approach where forgetting a region is impossible. <b>Pick targeted patches</b> for a large
-    editable grid where a save shouldn't move the row being edited, or when one region updates
-    much more often than the rest. Even then, the page and the fragment endpoint must call the
-    same render function.</p>
+  <p><b>Pick whole view</b> by default, especially for live views with several viewers. It's the one
+    approach where forgetting a region is flat-out impossible, and "forgot to update the count in the
+    header" is a bug you will otherwise write, I promise. <b>Pick targeted patches</b> for a large
+    editable grid where a save shouldn't yank the row out from under the person editing it, or when
+    one region updates way more often than the rest. Even then, the page and the fragment endpoint
+    must call the same render function. Must. Otherwise they drift, and they always drift.</p>
 
-  <p>To keep whole-view rendering but stop rows jumping:</p>
+  <p>Want to keep whole-view rendering but stop rows from jumping around? A few options:</p>
   <ul>
     <li>Sort by something that doesn't change while people work, such as order id or arrival time,
       and show status with a style instead.</li>
-    <li>Put each status in its own section, so an order leaves one list and joins another.</li>
+    <li>Put each status in its own section, so an order leaves one list and joins another, which is
+      a move people's eyes can actually follow.</li>
     <li>Pass <code>useViewTransition</code> (part 2) so the browser animates the move instead of
       teleporting it.</li>
   </ul>
-  <p><b>Brew Board chose:</b> whole view, sorted by status. That is fine for a barista who
-    watches the board, and a known hazard for one who clicks fast.</p>
+  <p><b>Brew Board chose:</b> whole view, sorted by status. That's fine for a barista who watches the
+    board, and a known hazard for one who clicks fast. We know. We left it in so you'd see it.</p>
 
   <h3>2. <code>text/html</code> or SSE for reads</h3>
 
-  <p>Part 1 showed that Datastar accepts a plain <code>text/html</code> response and patches its
-    top-level elements by id. Lesson 8 answers the same menu read both ways: 232 bytes of HTML, or
-    280 bytes as one SSE event. Patch options travel in response headers
-    (<code>datastar-selector</code>, <code>datastar-mode</code>, …), so even an append works without
-    SSE:</p>
+  <p>Remember part 1? Datastar will happily take a plain <code>text/html</code> response and patch
+    its top-level elements by id. No event stream required. Lesson 8 answers the same menu read both
+    ways: 232 bytes of HTML, or 280 bytes as one SSE event. And here's the bit people miss: patch
+    options can travel in response headers (<code>datastar-selector</code>, <code>datastar-mode</code>,
+    …), so even an append works without SSE:</p>
 <pre><code class="language-http">HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
 datastar-selector: #menu-card
@@ -254,52 +280,57 @@ datastar-mode: append
 
 &lt;li&gt;Seasonal: Pumpkin Latte&lt;/li&gt;</code></pre>
 
-  <p><b>Pick <code>text/html</code></b> for reads that return one element. The handler is an
-    ordinary Ring handler, you can open the URL in a browser tab and see the fragment, and
-    there's no event framing to get wrong. <b>Pick SSE</b> when one response must carry several
-    patches, element and signal patches together (part 4's drop-down sends both), or a stream
-    held open over time.</p>
+  <p><b>Pick <code>text/html</code></b> for reads that return one element. The handler is a plain
+    old Ring handler, you can open the URL in a browser tab and actually look at the fragment, and
+    there's no event framing to get wrong. <b>Pick SSE</b> when one response has to carry several
+    patches, element and signal patches together (part 4's drop-down sends both), or when you need a
+    stream held open over time.</p>
 
-  <p><b>Brew Board chose:</b> SSE everywhere, so one writer from part 2 covers every case. A
-    production codebase commonly splits it instead: reads are <code>text/html</code>, and writes
-    that need several patches are SSE. Neither is wrong.</p>
+  <p><b>Brew Board chose:</b> SSE everywhere, so the one writer from part 2 covers every case and
+    there's exactly one thing to understand. A production codebase commonly splits it instead: reads
+    are <code>text/html</code>, and writes that need several patches are SSE. Neither is wrong. This is
+    one of those both-sides ones.</p>
 
   <h3>3. HTML or signals for values the server sends</h3>
 
-  <p>The server can put a value on screen in two ways: render it into HTML, or
-    <code>patch-signals</code> it into a signal that a <code>data-text</code> displays. They look the
-    same to the user, but they behave differently over time:</p>
+  <p>The server can get a value onto the screen in two ways. It can render it into HTML, or it can
+    <code>patch-signals</code> it into a signal that a <code>data-text</code> displays. To the user,
+    they look identical. Over time, they behave very differently:</p>
   <ul>
-    <li><b>HTML</b> is replaced by the next render. There is nothing to keep in sync.</li>
-    <li><b>A signal</b> is a client-side copy of server state, and it stays until someone overwrites
-      it. Under a whole-view re-render, an element that displays a signal also competes with the
-      morph.</li>
+    <li><b>HTML</b> gets replaced by the next render. There's nothing to keep in sync, because there's
+      nothing left over.</li>
+    <li><b>A signal</b> is a client-side copy of server state, and it hangs around until somebody
+      overwrites it. Under a whole-view re-render, an element that displays a signal also ends up
+      wrestling with the morph.</li>
   </ul>
-  <p>That is why parts 3–7 moved prices and error messages into HTML.</p>
+  <p>That's why parts 3–7 kept moving prices and error messages into HTML. It wasn't fussiness. It was
+    self-defense.</p>
 
-  <p><b>Use <code>patch-signals</code></b> when the server writes into something the client owns.
-    Part 4's drop-down resets <code>$size</code> because the user's draft is held in signals and
-    the old size isn't valid for the new drink. Clearing an input after a successful command is
-    the same case. <b>Use HTML</b> for everything the user only reads.</p>
+  <p><b>Use <code>patch-signals</code></b> when the server is writing into something the client
+    owns. Part 4's drop-down resets <code>$size</code> because the user's draft lives in signals and
+    the old size isn't valid for the new drink. Clearing an input after a successful command is the
+    same case. <b>Use HTML</b> for everything the user only reads, which is to say, most things.</p>
 
   <h3>4. Request ordering and cancellation</h3>
 
-  <p>Two requests in flight can finish in either order. Datastar has one built-in rule for this,
-    in <code>fetch.ts</code>: a module-level map holds one <code>AbortController</code> per method
-    and URL, and a new request aborts the one in flight under the same key (default
-    <code>requestCancellation: 'auto'</code>). The key is the URL string exactly as written in the
-    action, before Datastar appends its <code>datastar</code> parameter. So two
-    <code>@get('/search')</code> calls cancel each other, while <code>@get('/search?q=la')</code>
-    and <code>@get('/search?q=lat')</code> don't.</p>
+  <p>Here's a fun fact that ruins people's afternoons: two requests in flight can finish in either
+    order. The network makes no promises. Datastar has exactly one built-in rule for this, in
+    <code>fetch.ts</code>. A module-level map holds one <code>AbortController</code> per method and
+    URL, and a new request aborts the one in flight under the same key (default
+    <code>requestCancellation: 'auto'</code>). And now the subtle part, so lean in. The key is the
+    URL string <em>exactly as written in the action</em>, before Datastar appends its
+    <code>datastar</code> parameter. So two <code>@get('/search')</code> calls cancel each other,
+    while <code>@get('/search?q=la')</code> and <code>@get('/search?q=lat')</code> don't. They're
+    different strings, so as far as Datastar's concerned they're strangers.</p>
 
-  <p>Lesson 8 makes "la" a slow query (250 ms) and "lat" a fast one (150 ms), then types "lat" 30 ms
-    after "la":</p>
+  <p>To make the race happen on purpose, lesson 8 makes "la" a slow query (250 ms) and "lat" a fast
+    one (150 ms), then types "lat" 30 ms after "la". Watch who wins:</p>
 
   <div id="viz-race"></div>
 
-  <p>In a real Chrome run against lesson 8's page, typing "lat" quickly into the per-query-URL box
-    left the results showing an earlier, shorter query. The other two boxes showed "lat". The
-    options:</p>
+  <p>This isn't just theory. In a real Chrome run against lesson 8's page, typing "lat" quickly into
+    the per-query-URL box left the results showing an earlier, shorter query. The other two boxes
+    showed "lat", as you'd hope. So what do you do about it? Your options:</p>
   <div class="table-wrap"><table class="data">
     <thead><tr><th>design</th><th>pros</th><th>cons</th></tr></thead>
     <tbody>
@@ -308,59 +339,65 @@ datastar-mode: append
       <tr><td><code>data-on:input__debounce.200ms</code></td><td>far fewer requests</td><td>doesn't order anything; a pause longer than the window and shorter than a slow response still races</td></tr>
     </tbody>
   </table></div>
-  <p>The table's choices can be combined: debounce for load, plus one of the first two for
-    correctness. <code>requestCancellation: 'disabled'</code> exists for the rare case where you
-    want both answers. <b>Brew Board chose:</b> it has no search box, and its commands are
-    different URLs that shouldn't cancel each other. Part 4's searchable-combobox stretch exercise
-    should use one URL.</p>
+  <p>Note that debounce is in there mostly so I can tell you it doesn't fix this. It's a load fix
+    wearing a correctness costume. You can combine the table's choices, though: debounce for load,
+    plus one of the first two for correctness. And <code>requestCancellation: 'disabled'</code> exists
+    for the rare case where you really do want both answers. <b>Brew Board chose:</b> nothing,
+    technically, because it has no search box, and its commands are different URLs that shouldn't
+    cancel each other anyway. But if you do part 4's searchable-combobox stretch exercise, use one
+    URL.</p>
 
   <h3>5. <code>data-indicator</code> or a hand-managed flag</h3>
 
-  <p>A common first attempt at "disable Save while saving" is
-    <code>$saving = true; @post('/save')</code>, with the server clearing <code>$saving</code> in
-    its response. If the network drops, no response arrives, and the page stays locked until
-    reload. <code>data-indicator</code> counts the element's in-flight fetches, and
-    <code>fetch.ts</code> dispatches the finished event in a <code>finally</code> block, so the count
-    comes down after success, an error status, or a dropped connection. The one catch, from part 3:
-    it only counts fetches started from the element that carries it.</p>
+  <p>Everybody's first attempt at "disable Save while saving" looks like this:
+    <code>$saving = true; @post('/save')</code>, with the server clearing <code>$saving</code> in its
+    response. It works great right up until the network drops. Then no response arrives, nobody
+    clears the flag, and the page stays locked until reload. Your user stares at a grayed-out button
+    and contemplates the void. <code>data-indicator</code> doesn't have this problem. It counts the
+    element's in-flight fetches, and <code>fetch.ts</code> dispatches the finished event in a
+    <code>finally</code> block, so the count comes down after success, an error status, or a dropped
+    connection. The one catch, which you'll remember from part 3: it only counts fetches started from
+    the element that carries it.</p>
 
-  <p><b>Brew Board chose:</b> <code>data-indicator</code>. We found no case where the flag is better.</p>
+  <p><b>Brew Board chose:</b> <code>data-indicator</code>. We looked for a case where the flag is
+    better. We didn't find one. This is the sacred cow.</p>
 
   <h3>6. Per-tab or per-browser identity</h3>
 
-  <p>Part 6 found the bug: a cookie identifies a browser, every tab shares it, so per-cookie state
-    shows up in every tab. The split Brew Board settled on:</p>
+  <p>Part 6 found this bug the hard way. A cookie identifies a browser, every tab shares it, and so
+    per-cookie state shows up in every tab, whether you wanted it there or not. The split Brew Board
+    eventually settled on:</p>
   <ul>
-    <li><b>Per browser (the <code>sid</code> cookie):</b> things that belong to the person. That is
+    <li><b>Per browser (the <code>sid</code> cookie):</b> things that belong to the person. That's
       the cart, the orders, and the registered push device.</li>
-    <li><b>Per tab (a <code>tabid</code> signal):</b> things that belong to one view. That is the
+    <li><b>Per tab (a <code>tabid</code> signal):</b> things that belong to one view. That's the
       draft being configured and the error message about it.</li>
   </ul>
-  <p>The tab id is seeded once with <code>data-signals:tabid__ifmissing="crypto.randomUUID()"</code>
-    on <code>&lt;body&gt;</code>, outside every morph target. It is fresh on each full load, stable
-    across re-renders, and (like every non-<code>_</code> signal) sent with every request.
-    <code>crypto.randomUUID()</code> needs a secure context: https, or localhost during
-    development.</p>
+  <p>The tab id is seeded exactly once, with <code>data-signals:tabid__ifmissing="crypto.randomUUID()"</code>
+    on <code>&lt;body&gt;</code>, safely outside every morph target. It's fresh on each full load,
+    stable across re-renders, and (like every non-<code>_</code> signal) sent along with every
+    request. One small gotcha: <code>crypto.randomUUID()</code> needs a secure context, which means
+    https, or localhost during development.</p>
 
-  <div class="code-ref"><p><code>clojure/src/lesson08/field_guide.clj</code> (ns
-    <code>lesson08.field-guide</code>), tests in <code>clojure/test/lesson08/field_guide_test.clj</code>.
+  <div class="code-ref"><p>The code is in <code>clojure/src/lesson08/field_guide.clj</code> (ns
+    <code>lesson08.field-guide</code>), with tests in <code>clojure/test/lesson08/field_guide_test.clj</code>.
     The demo prints:</p>
     <ul>
       <li>the read answered as HTML, as SSE, and as an append through headers</li>
       <li>the whole-view and targeted patches with byte counts and final row order</li>
       <li>the search race, unguarded and with the sequence-number guard</li>
     </ul>
-    <p>Run it with <code>cd clojure &amp;&amp; clojure -M -m lesson08.field-guide</code>. At the REPL,
-    <code>(lesson08.field-guide/start! 8080)</code> and open <code>http://localhost:8080/</code> to
-    click through the patches, type into the three search boxes, and open the two receipts. There
-    are no exercises in this part.</p></div>
+    <p>Run it with <code>cd clojure &amp;&amp; clojure -M -m lesson08.field-guide</code>. Or, better, at the REPL,
+    run <code>(lesson08.field-guide/start! 8080)</code> and open <code>http://localhost:8080/</code>, then
+    click through the patches, type into the three search boxes, and open the two receipts. Poke at
+    it. That's what it's for. (Still no exercises in this part. I wasn't kidding.)</p></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>Put each interaction on the highest rung of the ladder that can do it
-    (server, native HTML, CSS, Datastar attributes, custom JS), and justify every line of glue.
-    Navigate with links and full loads, and keep bookmarkable state in the URL. The remaining
-    choices are trade-offs, not rules:</p>
+  <div class="takeaway"><p>So here's the whole field guide on one napkin. Put each interaction on the
+    highest rung of the ladder that can do it (server, native HTML, CSS, Datastar attributes, custom
+    JS), and make every line of glue justify itself. Navigate with links and full loads, and keep
+    bookmarkable state in the URL. Everything else is a trade-off, not a rule:</p>
     <ul>
       <li>whole-view rendering trades bytes and moving content for one renderer that can't go
         stale</li>
