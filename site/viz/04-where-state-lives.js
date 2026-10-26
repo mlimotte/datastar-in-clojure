@@ -7,16 +7,16 @@
   // ---------- figure A: sorter ----------
   const HOMES = ["server", "server-rendered HTML", "signal", "_signal"];
   const ITEMS = [
-    ["Ada's cart lines", [0], "Must survive a reload and be checked against stock. The browser sees the cart only as HTML."],
-    ["The list of milks offered for the chosen drink", [1], "Derived from menu and stock. It's markup; the selected milk is the signal."],
+    ["Ada's cart lines", [0], "Must survive a reload and be checked against stock. The browser only ever sees the cart as HTML, and that's plenty."],
+    ["The list of milks offered for the chosen drink", [1], "Derived from menu and stock, so it's markup. Don't confuse it with the selected milk, which is the signal."],
     ["The quantity Ada is typing", [2], "Uncommitted input. It travels with \"Add to cart\", where the server validates it."],
-    ["Whether the \"customize\" panel is expanded", [3], "Pure presentation in this tab. The server has no use for it, so keep it out of every payload."],
+    ["Whether the \"customize\" panel is expanded", [3], "Pure presentation in this tab. The server couldn't care less about it, so keep it out of every payload."],
     ["That oat milk is sold out", [0], "Shared between every customer and the barista. Customers see it as HTML (a disabled option)."],
     ["The text in a drink search box", [2], "Input the server needs to filter with, so it must not start with _."],
     ["Whether a request is in flight", [3], "data-indicator:_loading: transient, local, never sent."],
     ["Order #12's status, \"making\"", [0], "Sam changes it; Ada must see it. Shared state."],
-    ["The price of the drink being configured", [1], "A business value. The server prices the draft and renders it (part 3's #quote); a browser copy of the pricing rule would drift."],
-    ["The message \"Oat milk is sold out.\" after a refused add", [1], "The server's answer to a command, rendered into #draft-error. As a signal, the page would have to keep it in sync."],
+    ["The price of the drink being configured", [1], "A business value. The server prices the draft and renders it (part 3's #quote). A browser copy of the pricing rule would drift, and it always drifts."],
+    ["The message \"Oat milk is sold out.\" after a refused add", [1], "The server's answer to a command, rendered into #draft-error. Make it a signal and now the page has to keep it in sync, which is a chore nobody asked for."],
     ["The customer name for the order", [2], "Input, sent with \"Place order\"."],
   ];
   const A = frame("#viz-sorter", "Where does it live?", "pick a home for each; the verdict appears as you go");
@@ -46,7 +46,7 @@
       list.append(item);
     });
     clear(A.stage).append(list);
-    A.foot.textContent = "Rules in order: shared or durable → server; derived from server data → server-rendered HTML; uncommitted input → signal; presentation only → _signal.";
+    A.foot.textContent = "Ask these in order, and stop at the first yes: shared or durable → server; derived from server data → server-rendered HTML; uncommitted input → signal; presentation only → _signal.";
     update();
   }
   build();
@@ -100,16 +100,16 @@
     const base = { drink: sc.from.drink, opts: optionsHtml(sc.from.drink, sc.before, sc.from), sig: sig0, ch: [], wire: "", flash: false };
     add({ ...base, note: sc.who + " Before the change: the options for " + NAMES[sc.from.drink] + " are HTML the server rendered at page load." });
     const s1 = { ...sig0, drink: sc.to };
-    add({ ...base, drink: sc.to, sig: s1, ch: ["drink"], note: "change fires. data-bind:drink (first in source order) sets $drink; then data-on:change runs @get('/drink-options')." });
-    add({ ...base, drink: sc.to, sig: s1, wire: `GET /drink-options?datastar=…\n${payload}`, note: "Every non-_ signal goes along: the new drink, and the old size and milk, which may no longer fit." });
+    add({ ...base, drink: sc.to, sig: s1, ch: ["drink"], note: "change fires. data-bind:drink gets there first (it's first in source order) and sets $drink; then data-on:change runs @get('/drink-options')." });
+    add({ ...base, drink: sc.to, sig: s1, wire: `GET /drink-options?datastar=…\n${payload}`, note: "Every non-_ signal goes along for the ride: the new drink, plus the old size and milk, which may no longer fit." });
     const changedTxt = Object.keys(patch).length ? Object.entries(patch).map(([k, v]) => `:${k} ${JSON.stringify(v)}`).join(" ") : "";
     add({ ...base, drink: sc.to, sig: s1,
       wire: `(valid-choice :${sc.to} #{${sc.soldOut.map((m) => ":" + m).join(" ")}} {:size :${sc.from.size} :milk :${sc.from.milk}})\n→ {:size :${choice.size} :milk ${choice.milk ? ":" + choice.milk : "nil"}}\nchanged → {${changedTxt}}`,
-      note: "The server keeps each value that is still allowed and in stock, and otherwise takes the first allowed one." });
+      note: "The server keeps each value that's still allowed and in stock, and otherwise just takes the first allowed one. No drama." });
     add({ ...base, drink: sc.to, sig: s1, opts: elHtml, flash: true, wire: BREW.patchElements(elHtml, { mode: "replace" }), note: "Event 1: #drink-options, matched by id and replaced (mode replace), so the new selects start fresh. The chosen options carry selected=\"\"." });
     const s2 = { ...s1, ...patch };
     add({ ...base, drink: sc.to, sig: s2, opts: elHtml, ch: Object.keys(patch), wire: BREW.patchSignals(sigJson),
-      note: Object.keys(patch).length ? `Event 2: only the signals that no longer fit${"milk" in patch && patch.milk === "" ? ". No milk is \"\", not null: null would delete $milk." : "."}` : "Event 2: nothing needed changing, so the patch is {} and does nothing." });
+      note: Object.keys(patch).length ? `Event 2: only the signals that no longer fit${"milk" in patch && patch.milk === "" ? ". No milk is \"\", not null: null would delete $milk." : "."}` : "Event 2: nothing needed changing, so the patch is {} and does exactly nothing." });
     add({ ...base, drink: sc.to, sig: s2, opts: elHtml, note: `Done. The next "Add to cart" sends ${JSON.stringify({ drink: s2.drink, size: s2.size, milk: s2.milk })}, which matches what the selects show.` });
     return F;
   }
@@ -136,10 +136,10 @@
   B.controls.append(scSeg);
 
   const pr = predict(pm, {
-    prompt: "Ada has a medium oat latte and switches the drink to Espresso, which takes no milk. After the response, what is <code>$milk</code>?",
+    prompt: "Ada has a medium oat latte (that latte again) and switches the drink to Espresso, which takes no milk. After the response, what is <code>$milk</code>?",
     choices: ["<code>\"oat\"</code>: unchanged", "<code>null</code>", "<code>\"\"</code>: an empty string", "It no longer exists"],
     answer: 2,
-    explain: "The server sends <code>{\"size\":\"single\",\"milk\":\"\"}</code>. <code>null</code> would have removed the signal (merge-patch semantics), dropping <code>milk</code> from every later request. The figure below now shows this case at its last step.",
+    explain: "The server sends <code>{\"size\":\"single\",\"milk\":\"\"}</code>. Why not <code>null</code>? Because <code>null</code> would have removed the signal outright (merge-patch semantics), quietly dropping <code>milk</code> from every later request. The figure below now shows this case at its last step.",
     onLock() { scSeg.querySelectorAll("button")[0].click(); st.go(5); pr.reveal(); },
   });
 })();

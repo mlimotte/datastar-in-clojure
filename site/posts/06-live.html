@@ -54,16 +54,19 @@
 </style>
   <h1>One stream, many viewers</h1>
   <p class="dek">Every open page holds one long-lived GET. Commands change the atom and answer 204.
-    When the atom changes, the server renders each viewer's whole view again and sends it down that
-    viewer's stream; Datastar's morph applies only the difference. It sounds wasteful. Measured, it
+    When the atom changes, the server renders each viewer's <em>whole view</em> again and sends it
+    down that viewer's stream, and Datastar's morph applies only the difference. I know. It sounds
+    wildly wasteful. It sounds like the kind of thing a code reviewer circles in red. Measured, it
     costs about 40 bytes per update, and it never loses the user's focus.</p>
 
   <div data-warmup></div>
 
-  <p>Part 5 ended with Sam's board stale: Ada placed an order, and the board, open in another
-    browser, never heard about it. A response can only go to the browser that asked. The fix is to
-    have every page ask once, at load, with a GET whose response never ends. While it is open, the
-    server can write to it whenever it likes, and commands no longer need to return any HTML.</p>
+  <p>Part 5 left us with a cliffhanger, or at least a stale board. Ada placed an order, and Sam's
+    board, open in another browser, never heard a word about it. That's not a bug in our code; it's
+    how HTTP works. A response can only go to the browser that asked. So the fix is to make every
+    page ask once, at load, with a GET whose response never ends. While that request is open, the
+    server can write to it whenever it feels like it, and commands no longer need to return any HTML
+    at all.</p>
 
   <h2>The shape</h2>
 
@@ -82,18 +85,20 @@ for each subscriber s
   if html != s.last-sent then send(s, patch-elements(html))
 </pre>
 
-  <p>A command's response is now empty: Datastar accepts a 204 and does nothing with it. And
-    <code>command-response</code>, part 5's "what changed on which page", is gone. There is one
+  <p>Notice what just happened to a command's response: it's empty. Datastar accepts a 204 and
+    does nothing with it, which is exactly what we want. And <code>command-response</code>, part 5's
+    careful little ledger of "what changed on which page", is gone. Deleted. In its place there's one
     function per kind of page, <code>view-for</code>, that renders the whole page body from the state,
-    and one rule: after every change, render every view again.</p>
+    and one rule: after every change, render every view again. That's the entire architecture. You
+    could fit it on an index card and still have room for a doodle.</p>
 
   <h2>Holding a stream open in http-kit</h2>
 
-  <p>Parts 1–5 returned one-shot responses that Datastar read to EOF. A held-open stream needs a body
-    that doesn't end, which in http-kit means <code>as-channel</code>.</p>
+  <p>Parts 1–5 returned one-shot responses that Datastar read to EOF. Easy. A held-open stream needs
+    a body that <em>doesn't</em> end, and in http-kit that means <code>as-channel</code>.</p>
 
   <div class="aside"><p><strong>The <code>as-channel</code> contract.</strong> Part 2 used it
-    without spelling it out.</p>
+    without spelling it out, which was a little rude of part 2. Here it is in full:</p>
     <ul>
       <li><b>The handler returns before the response does.</b> <code>(hk/as-channel req
         opts)</code> returns <code>{:body ch}</code>. http-kit sends nothing until your code calls
@@ -102,12 +107,12 @@ for each subscriber s
         <code>send!</code>. Keep <code>ch</code> (or a function that closes over it) and return.</li>
       <li><b><code>(hk/send! ch data close?)</code></b> writes to the client. The first call can be a
         map with <code>:status</code> and <code>:headers</code>. Later calls send body only, and
-        http-kit strips <code>:status</code> and <code>:headers</code> from them. On an HTTP channel
-        <code>close?</code> defaults to <b>true</b>, so a streaming response passes
+        http-kit strips <code>:status</code> and <code>:headers</code> from them. Here's the trap: on
+        an HTTP channel <code>close?</code> defaults to <b>true</b>, so a streaming response passes
         <code>false</code> on every call. <code>send!</code> returns <code>false</code> if the
         channel is already closed.</li>
       <li><b>No Ring middleware runs on what you send.</b> That is why the SSE headers are set by
-        hand here.</li>
+        hand here. Your middleware stack is standing on the platform waving as the train leaves.</li>
       <li><b><code>:on-close (fn [ch status])</code></b> runs at most once, when either side closes
         the channel. Do your clean-up here.</li>
     </ul></div>
@@ -133,13 +138,15 @@ for each subscriber s
                    (swap! !state handle-command {:type :close-tab :tabid tabid :stream id})))}))</code></pre>
   <p class="caption">From <code>lesson06.live</code> (the handler around <code>as-channel</code> is in
     <code>clojure/src/lesson06/live.clj</code>). <code>stream-lifecycle</code> knows nothing about
-    http-kit, so the tests drive it with a <code>send-fn</code> that conj's onto an atom. The tab
-    parts are explained below.</p>
+    http-kit, so the tests drive it with a <code>send-fn</code> that conj's onto an atom. No sockets,
+    no sleeps. The tab parts are explained below.</p>
 
-  <p>The two <code>:on-open</code>s belong to different layers. http-kit's gets the channel
-    <code>ch</code>; the lifecycle's gets a <code>send-fn</code>. <code>stream-handler</code> is the
-    shim between them: it sends the headers, wraps <code>ch</code> in a closure, and passes the
-    closure on. The figure follows one customer stream through both layers.</p>
+  <p>Now, if you're squinting at that and thinking "wait, why are there two
+    <code>:on-open</code>s?", good. That's the right squint. They belong to different layers.
+    http-kit's gets the channel <code>ch</code>; the lifecycle's gets a <code>send-fn</code>.
+    <code>stream-handler</code> is the shim between them: it sends the headers, wraps
+    <code>ch</code> in a closure, and passes the closure on. The figure follows one customer stream
+    through both layers, start to finish.</p>
 
   <div class="viz" id="seq-stream">
   <div class="viz-head"><span class="viz-title">One stream, from GET to close</span>
@@ -165,17 +172,19 @@ for each subscriber s
   <p class="caption">Solid arrows are calls; dashed arrows are return values. The orange arrows are
     the only path from the hub to this browser: the <code>send-fn</code> closure, which holds
     <code>ch</code>. Steps 1 and 2 run once per stream. Step 3 runs on the thread of whatever command
-    changed the state. <code>:open-tab</code> runs before <code>subscribe!</code>, so its watch does
-    not reach this stream; the <code>broadcast!</code> after <code>subscribe!</code> sends the first
-    view.</p>
+    changed the state. One subtle bit: <code>:open-tab</code> runs before <code>subscribe!</code>, so
+    its watch does not reach this stream; the <code>broadcast!</code> after <code>subscribe!</code>
+    sends the first view.</p>
 
-  <p>http-kit is non-blocking, so an idle stream holds a socket, not a
-    thread. Check that your server tells you when a viewer leaves: on http-kit 2.8.1,
-    <code>:on-close</code> never fired when an SSE client disconnected, so the hub kept rendering for
-    closed tabs. The course pins 2.9.0-beta4, where it fires. <code>on-open</code> sends the whole
-    view at once, so the page is correct the moment the stream opens.</p>
+  <p>http-kit is non-blocking, so an idle stream holds a socket, not a thread. That's the good news.
+    The bad news is that you should check that your server actually tells you when a viewer leaves:
+    on http-kit 2.8.1, <code>:on-close</code> never fired when an SSE client disconnected, so the hub
+    kept dutifully rendering for closed tabs, like a waiter refilling water glasses at an empty
+    table. The course pins 2.9.0-beta4, where it fires. And since <code>on-open</code> sends the whole
+    view at once, the page is correct the moment the stream opens.</p>
 
-  <p>The hub is an atom of subscribers plus a watch on the state atom:</p>
+  <p>So how does a change get from the atom to all those streams? The hub is an atom of subscribers
+    plus a watch on the state atom. That's it:</p>
 
 <pre><code class="language-clojure">(defn broadcast! [hub !state]
   (locking hub
@@ -195,79 +204,85 @@ for each subscriber s
     thread that made the change.
     <a href="https://clojuredocs.org/clojure.core/locking"><code>locking</code></a> makes broadcasts
     run one at a time, so two commands that arrive together cannot interleave writes to a stream or
-    race on <code>:last</code>. One at a time is not the same as in order. If command A changes the
-    state and then command B changes it, B's thread can take the lock first and send the newer view.
-    If A's broadcast then rendered the <code>new</code> value its watch received, it would send the
-    older view, and the page would stay stale until the next change. So <code>broadcast!</code>
-    ignores that value and reads <code>@!state</code> inside the lock. A late broadcast sees the
-    newest state, renders what was already sent, and sends nothing.</p>
+    race on <code>:last</code>. But (and this is the kind of thing that bites in production at 2 a.m.)
+    one at a time is not the same as in order. If command A changes the state and then command B
+    changes it, B's thread can take the lock first and send the newer view. If A's broadcast then
+    rendered the <code>new</code> value its watch received, it would send the older view, and the page
+    would stay stale until the next change. So <code>broadcast!</code> ignores that value and reads
+    <code>@!state</code> inside the lock. A late broadcast sees the newest state, renders what was
+    already sent, and sends nothing. Late, but harmless.</p>
 
   <p>The <code>:last</code> check matters more than it looks. Most changes touch one person's view:
     when Grace adds a mocha to her cart, Ada's page renders to the same string, so nothing is sent to
-    Ada. The figure shows who gets an event for each command.</p>
+    Ada. Ada doesn't care about Grace's mocha, and now neither does Ada's network connection. The
+    figure shows who gets an event for each command.</p>
 
-  <div class="aside"><p><strong>Yes, this renders every view on every change.</strong> Ada gets no
-    event, but her page is still rendered so that the server can compare it. The cost is subscribers ×
-    changes × render time. For a coffee shop that is nothing. For a large page with hundreds of
-    thousands of viewers it is real work. There are ways to reduce it: render once for viewers who see
-    the same thing, render only the views that a change can affect, and combine a burst of changes
-    into one broadcast. This lesson keeps the simple version and does not build those.
+  <div class="aside"><p><strong>Yes, this renders every view on every change.</strong> I can hear
+    you objecting from here, and you're right to. Ada gets no event, but her page is still rendered so
+    that the server can compare it. The cost is subscribers × changes × render time. For a coffee shop
+    that is nothing. For a large page with hundreds of thousands of viewers it is real work. There are
+    ways to reduce it: render once for viewers who see the same thing, render only the views that a
+    change can affect, and combine a burst of changes into one broadcast. This lesson keeps the simple
+    version and does not build those.
     <a href="#whole-view-cost">"Sending the whole view on every change is too much"</a>, below,
     comes back to the bytes and the CPU.</p></div>
 
   <div id="viz-fanout"></div>
 
-  <p>The sold-out command is the one part 4 promised. When Sam marks oat milk sold out, every
-    customer's <code>#drink-options</code> renders with
+  <p>And here's a little gift. The sold-out command is the one part 4 promised. When Sam marks oat
+    milk sold out, every customer's <code>#drink-options</code> renders with
     <code>&lt;option value="oat" disabled&gt;Oat (sold out)&lt;/option&gt;</code>, so every open
-    customer page gets it, with no code written for it: the drop-down is part of the view, and
-    sold-out is state. (<code>add-to-cart</code> still rejects a sold-out milk from a page that hasn't
-    updated yet.)</p>
+    customer page gets it, with no code written for it. None! The drop-down is part of the view, and
+    sold-out is state, and that's all it takes. (<code>add-to-cart</code> still rejects a sold-out milk
+    from a page that hasn't updated yet. Trust, but verify.)</p>
 
   <h3>The drink choice has to move to the server</h3>
 
-  <p>To render Ada's <code>#drink-options</code>, the server needs to know which drink she picked. In
-    part 4 the drink lived only in <code>$drink</code>, and <code>GET /drink-options</code> read it
-    from the request. A re-render triggered by Sam's command has no request from Ada. Her stream was
-    opened once, at page load, and its signals describe the page as it was then: Datastar sends
-    signals with requests, and the stream makes no new ones until it reconnects.</p>
+  <p>Now for the catch. To render Ada's <code>#drink-options</code>, the server needs to know which
+    drink she picked. In part 4 the drink lived only in <code>$drink</code>, and
+    <code>GET /drink-options</code> read it from the request. But a re-render triggered by Sam's
+    command has no request from Ada. Her stream was opened once, at page load, and its signals
+    describe the page as it was then: Datastar sends signals with requests, and the stream makes no
+    new ones until it reconnects. The server is, in effect, looking at a photograph of Ada's page from
+    ten minutes ago.</p>
 
-  <p>The rule: <b>state that shapes server-rendered HTML must live on the server.</b> So in lessons
-    06–07 and the capstone, all three selects run <code>@post('/draft')</code> on change.
-    <code>:choose-draft</code> fits the draft to the drink and stores it as the tab's draft,
-    <code>[:tabs tabid :draft]</code>. It answers 200 with a patch-signals of whichever of
-    <code>size</code>/<code>milk</code> the fitting changed, or 204. The new option lists arrive in
-    the re-render the <code>swap!</code> triggers. Part 4's <code>GET /drink-options</code> stays a
-    pure query, for pages without a stream.</p>
+  <p>So here's the rule, and it's a big one: <b>state that shapes server-rendered HTML must live on
+    the server.</b> So in lessons 06–07 and the capstone, all three selects run
+    <code>@post('/draft')</code> on change. <code>:choose-draft</code> fits the draft to the drink and
+    stores it as the tab's draft, <code>[:tabs tabid :draft]</code>. It answers 200 with a
+    patch-signals of whichever of <code>size</code>/<code>milk</code> the fitting changed, or 204. The
+    new option lists arrive in the re-render the <code>swap!</code> triggers. Part 4's
+    <code>GET /drink-options</code> stays a pure query, for pages without a stream.</p>
 
-  <p>Why do the size and milk selects post too? Because the server must also render which option is
-    <em>chosen</em>. Predict this one.</p>
+  <p>Why do the size and milk selects post too? Surely the drink is enough? Nope. The server must
+    also render which option is <em>chosen</em>. Predict this one before you peek.</p>
 
   <div id="predict-selected"></div>
 
-  <p>The mechanism is in <code>patchElements.ts</code>. Options have no ids, so
-    <code>findBestMatch</code> pairs them in order, and <code>morphNode</code> copies each new
+  <p>The mechanism is in <code>patchElements.ts</code>, and it's a little devious. Options have no
+    ids, so <code>findBestMatch</code> pairs them in order, and <code>morphNode</code> copies each new
     option's <code>value</code> and text onto the old one. It sets the <code>selected</code>
     <em>property</em> only when the <em>presence</em> of the <code>selected</code> attribute differs
     between old and new. Latte's medium sat at position 2; chai's position 2 is Large, and it keeps the
     selected property. <code>$size</code> is still <code>medium</code>, valid for chai, so no signal
-    patch arrives and <code>data-bind</code> has nothing to react to. Screen and signal now disagree.</p>
+    patch arrives and <code>data-bind</code> has nothing to react to. Screen and signal now disagree,
+    and neither one is going to tell you.</p>
 
-  <p>So <b>in a whole-view render, render the true current value of every form control you
+  <p>So: <b>in a whole-view render, render the true current value of every form control you
     re-render.</b> <code>drink-options-view</code> takes <code>[drink sold-out {:keys [size
     milk]}]</code> and puts <code>selected</code> on the stored choice; when chai renders medium as
     selected, the attribute's presence changes on both options and the morph sets both properties.
     The stored choice must be real, which is why <code>#size</code> and <code>#milk</code> post too.
-    Text inputs are the exception: the morph leaves <code>.value</code> alone while the
+    Text inputs are the exception, happily: the morph leaves <code>.value</code> alone while the
     <code>value</code> attribute is unchanged, so <code>#customer</code>, rendered with no
     <code>value</code>, keeps what Ada types.</p>
 
   <h2>A cookie identifies a browser, not a tab</h2>
 
-  <p>Where should the draft be stored? The <code>sid</code> cookie is on every request, and it is the
-    right key for the cart: Ada's cart is Ada's in any tab. It is the wrong key for the draft, because
-    every tab of a browser sends the same cookie, and the draft belongs to the tab whose drop-downs
-    show it.</p>
+  <p>Next question: where should the draft be stored? The obvious answer is the <code>sid</code>
+    cookie. It's on every request, and it is the right key for the cart: Ada's cart is Ada's in any
+    tab. But it is the wrong key for the draft, because every tab of a browser sends the same cookie,
+    and the draft belongs to the tab whose drop-downs show it. Obvious answers are like that.</p>
 
   <div id="predict-tabs"></div>
 
@@ -279,64 +294,71 @@ for each subscriber s
  [:div {:data-init "@get('/customer/stream', {retry: 'always'})"}]
  view]</code></pre>
   <p class="caption">From <code>lesson06.live/page</code>. <code>tabid</code> has no <code>_</code>,
-    so it rides on every request: the stream's GET and every command.</p>
+    so it rides along on every request: the stream's GET and every command.</p>
 
-  <p>Datastar applies the root element first, then its descendants in document order
-    (<code>engine.ts</code>), so <code>$tabid</code> exists before the child's <code>data-init</code>
-    opens the stream. Keep <code>data-init</code> off <code>&lt;body&gt;</code> itself: hiccup sorts
-    attributes, and it would run first. Every page load starts with an empty signal store, so a reload
-    or a duplicated tab gets a fresh id. <code>crypto.randomUUID()</code> exists only in a secure
-    context: https, or <code>localhost</code> in development.</p>
+  <p>Order matters here. Datastar applies the root element first, then its descendants in document
+    order (<code>engine.ts</code>), so <code>$tabid</code> exists before the child's
+    <code>data-init</code> opens the stream. Keep <code>data-init</code> off <code>&lt;body&gt;</code>
+    itself: hiccup sorts attributes, and it would run first. (Alphabetical order, of all things,
+    deciding your boot sequence.) Every page load starts with an empty signal store, so a reload or a
+    duplicated tab gets a fresh id. <code>crypto.randomUUID()</code> exists only in a secure context:
+    https, or <code>localhost</code> in development.</p>
 
   <p><code>:carts</code>, <code>:orders</code> and (in part 7) <code>:devices</code> stay keyed by
     <code>sid</code>. Per-tab state lives in <code>:tabs {tabid {:sid … :stream … :draft …
     :error …}}</code>, and each customer subscriber carries both keys, so <code>view-for</code> renders
     the browser's cart with the tab's draft.</p>
 
-  <p>The server also learns a tab's draft when the stream opens. A hidden tab closes its stream and
-    opens a new one when it becomes visible, and a restart forgets everything, but the stream's GET
-    carries the tab's signals as they are now. So <b>opening the stream adopts the draft</b>:
-    <code>:open-tab</code> fits it and stores it before the first render, and <code>:on-close</code>
-    can drop the tab without losing anything. <code>:close-tab</code> checks the stream id, because a
-    reconnect can open the new stream before the old one's close arrives.</p>
+  <p>The server also learns a tab's draft when the stream opens, and this turns out to be a lovely
+    bit of robustness for free. A hidden tab closes its stream and opens a new one when it becomes
+    visible, and a restart forgets everything, but the stream's GET carries the tab's signals as they
+    are now. So <b>opening the stream adopts the draft</b>: <code>:open-tab</code> fits it and stores
+    it before the first render, and <code>:on-close</code> can drop the tab without losing anything.
+    <code>:close-tab</code> checks the stream id, because a reconnect can open the new stream before
+    the old one's close arrives. Networks: never in the order you'd like.</p>
 
   <h3>Errors are server state too</h3>
 
   <p>A failed command (a sold-out milk, an empty cart) still answers 204. It records the message at
     <code>[:tabs tabid :error]</code>, the re-render draws it with <code>(when error [:p.error
-    error])</code>, and the tab's next command clears it. An <code>$_error</code> signal shown with
-    <code>data-text</code> would fight the server, which renders that element empty on every
-    re-render. If the server renders it, the server must know it. (<code>data-ignore-morph</code>,
-    which makes the morph skip an element, is for widgets the client really owns, such as a
-    third-party editor.)</p>
+    error])</code>, and the tab's next command clears it. You might be tempted to use an
+    <code>$_error</code> signal shown with <code>data-text</code> instead. Don't. It would fight the
+    server, which renders that element empty on every re-render, and the server always wins those
+    fights. If the server renders it, the server must know it. (<code>data-ignore-morph</code>, which
+    makes the morph skip an element, is for widgets the client really owns, such as a third-party
+    editor.)</p>
 
   <h2 id="whole-view-cost">"Sending the whole view on every change is too much"</h2>
 
+  <p>Alright. Let's have the argument properly, with numbers.</p>
+
   <p><b>Bytes.</b> A barista view with 12 orders is 2,613 bytes as an SSE event, and the next render
-    is almost all identical. Gzipped on its own, an event is about 540 bytes. But a long-lived stream
-    can share one compression context: run it through one deflate stream, flushing after each event,
-    and each re-render refers back to the last. Over twelve successive renders the first event was
-    526 bytes and every later one <b>39 to 44 bytes</b>. http-kit doesn't compress for you; Datastar's
-    Clojure SDK ships gzip and Brotli "write profiles" for this, and you can wrap the output stream
-    yourself. (Deflate looks back at most 32 KB; Brotli allows larger windows.)</p>
+    is almost all identical. Gzipped on its own, an event is about 540 bytes. Fine, not amazing. But
+    here's the trick: a long-lived stream can share one compression context. Run it through one
+    deflate stream, flushing after each event, and each re-render refers back to the last. Over twelve
+    successive renders the first event was 526 bytes and every later one <b>39 to 44 bytes</b>. Forty-ish
+    bytes to re-send the whole board. http-kit doesn't
+    compress for you; Datastar's Clojure SDK ships gzip and Brotli "write profiles" for this, and you
+    can wrap the output stream yourself. (Deflate looks back at most 32 KB; Brotli allows larger
+    windows.)</p>
 
   <p><b>CPU.</b> The cost is subscribers × changes × render time: nothing for a coffee shop. For
     thousands of viewers, render once per distinct view (all baristas see the same board) and throttle
     to the latest state every 100 ms, both inside <code>broadcast!</code>. Part 8 compares the whole
     view with patching only the elements that changed.</p>
 
-  <p><b>Focus and typing</b> are the objection people really worry about. Predict first.</p>
+  <p><b>Focus and typing</b> are the objection people really lose sleep over. Predict first.</p>
 
   <div id="predict-focus"></div>
 
-  <h2>How the morph keeps your place</h2>
+  <h2>How the morph keeps your place (or: why this isn't innerHTML)</h2>
 
   <p>A <code>datastar-patch-elements</code> event with no <code>selector</code> and the default mode
     <code>outer</code> finds the element with the same <code>id</code> (<code>&lt;main
     id="app"&gt;</code>) and <b>morphs</b> it: it walks the old and new trees together and changes the
-    existing nodes until they match. A surviving node is the same object, so focus, cursor, typed text,
-    scroll and running transitions survive with it. Reduced to its decisions,
-    <code>patchElements.ts</code> does this:</p>
+    existing nodes until they match. This is the whole magic trick. A surviving node is the same
+    object, so focus, cursor, typed text, scroll and running transitions survive with it. Reduced to
+    its decisions, <code>patchElements.ts</code> does this:</p>
 
 <pre class="pseudo">function morph(old, new)
   persistent = ids present in both trees on the same tag, minus duplicates
@@ -366,26 +388,29 @@ function morphNode(old, new)
   <p><b>Inputs keep what the user typed</b> because <code>morphNode</code> compares the
     <code>value</code> <em>attribute</em>, not the live value. <code>&lt;input id="customer"
     data-bind:customer&gt;</code> has no <code>value</code> attribute, so nothing is set and "Ad" stays
-    in the box. Render <code>value="…"</code> from changing server state and you overwrite the user.
-    <code>data-preserve-attr</code> leaves named attributes alone; with <code>data-ignore-morph</code>
-    on both old and new, <code>morphNode</code> returns the old element untouched.</p>
+    in the box, cursor and all. Render <code>value="…"</code> from changing server state, though, and
+    you overwrite the user mid-word. They will notice. <code>data-preserve-attr</code> leaves named
+    attributes alone; with <code>data-ignore-morph</code> on both old and new, <code>morphNode</code>
+    returns the old element untouched.</p>
 
   <p><b>Ids keep identity across moves.</b> A matched element with a persistent id is moved, not
     rebuilt: when Sam advances order #1, <code>&lt;li id="board-order-1"&gt;</code> moves from
-    "placed" to "making" as the same node. Give ids to anything that holds state and anything that
-    moves, and keep them unique: duplicates drop out of the persistent set.</p>
+    "placed" to "making" as the same node. So give ids to anything that holds state and anything that
+    moves, and keep them unique: duplicates drop out of the persistent set, quietly, without so much
+    as a warning.</p>
 
   <div id="viz-morph"></div>
 
   <p>Switch the figure to <code>replace</code> mode to see the alternative: a fresh copy
     (<code>replaceWith</code>), correct HTML, but every node is new, so the input is empty and focus
-    is on <code>&lt;body&gt;</code>. That is what an <code>innerHTML</code> re-render does, and why
-    people believe "send the whole page" can't work. With a morph it does.</p>
+    is on <code>&lt;body&gt;</code>. That is what an <code>innerHTML</code> re-render does, and it's
+    why so many people believe, deep in their bones, that "send the whole page" can't work. With
+    <code>innerHTML</code>, it can't. With a morph it does.</p>
 
   <h2>Reconnects</h2>
 
-  <p>A stream open for an hour will break: Wi-Fi drops, a laptop sleeps, a deploy restarts the server.
-    From <code>fetch.ts</code>:</p>
+  <p>Let's be realistic: a stream open for an hour will break. Wi-Fi drops, a laptop sleeps, a deploy
+    restarts the server. So what does Datastar do about it? From <code>fetch.ts</code>:</p>
 
   <ul>
     <li><b>On a failed connection or stream error</b>, Datastar retries with backoff:
@@ -394,34 +419,36 @@ function morphNode(old, new)
       in total). A successful connection resets the count; a server <code>retry:</code> line overrides
       the interval.</li>
     <li><b>When the server ends the stream cleanly</b>, the default <code>retry: 'auto'</code> does
-      not reconnect; <code>retry: 'always'</code> does. A graceful shutdown that ends each stream would
-      leave pages disconnected after a deploy, so open live streams with
-      <code>@get('/customer/stream', {retry: 'always'})</code>.</li>
+      not reconnect; <code>retry: 'always'</code> does. This one is sneaky. A graceful shutdown that
+      ends each stream would leave pages disconnected after a deploy, politely and permanently, so open
+      live streams with <code>@get('/customer/stream', {retry: 'always'})</code>.</li>
     <li><b>A <code>@get</code> closes when the tab is hidden</b> and reopens when it is visible again
       (<code>openWhenHidden</code> defaults to false for GET). A phone that locks drops its stream.</li>
     <li><b>Each retry rebuilds the request</b>, with the signals as they are now.</li>
   </ul>
 
-  <p>Because <code>on-open</code> sends the whole current view, a reconnect needs no event ids and no
-    replay buffer. The new connection gets the truth, and the morph lands it on whatever the page was
-    showing.</p>
+  <p>And here's where the "wasteful" design pays for itself. Because <code>on-open</code> sends the
+    whole current view, a reconnect needs no event ids and no replay buffer. None of that machinery.
+    The new connection gets the truth, and the morph lands it on whatever the page was showing.</p>
 
   <div id="predict-reconnect"></div>
 
   <p>Open the stream from <code>data-init</code> on an element outside <code>#app</code>, so the
-    re-render never touches it. A second <code>@get</code> to the same URL replaces the first rather
-    than doubling up (Part 8 covers request cancellation).</p>
+    re-render never touches it. (Sawing off the branch you're sitting on is a classic for a reason.)
+    A second <code>@get</code> to the same URL replaces the first rather than doubling up (Part 8
+    covers request cancellation).</p>
 
   <h2>What the server keeps and what it doesn't</h2>
 
-  <p>The hub holds, per open page, the send function, the viewer (a customer's <code>sid</code> and
-    <code>tabid</code>, or <code>:board</code>), and the last HTML sent. The state atom holds what is
-    shared (orders, stock), per customer (carts), and per tab but rendered (the draft, the error).
-    What the server never renders stays in the browser: typed text, the quantity, focus, scroll.
-    Part 4's split still holds, refined: state that shapes server-rendered HTML moves to the server,
-    keyed as narrowly as it lives.</p>
+  <p>Let's take inventory. The hub holds, per open page, the send function, the viewer (a customer's
+    <code>sid</code> and <code>tabid</code>, or <code>:board</code>), and the last HTML sent. The state
+    atom holds what is shared (orders, stock), per customer (carts), and per tab but rendered (the
+    draft, the error). What the server never renders stays in the browser: typed text, the quantity,
+    focus, scroll. Part 4's split still holds, just refined: state that shapes server-rendered HTML
+    moves to the server, keyed as narrowly as it lives.</p>
 
-  <div class="aside"><p><strong>Tips.</strong></p>
+  <div class="aside"><p><strong>Tips.</strong> Each of these is a small scar, so you don't have to
+    earn your own.</p>
     <ul>
       <li><b>One renderer.</b> The page GET and the stream call the same <code>view-for</code>. Two
         renderers drift, and the first stream event visibly rewrites the page just loaded.</li>
@@ -438,26 +465,28 @@ function morphNode(old, new)
         <code>__ifmissing</code>.</li>
     </ul></div>
 
-  <div class="code-ref"><p><code>clojure/src/lesson06/live.clj</code> (ns <code>lesson06.live</code>),
-    tests in <code>clojure/test/lesson06/live_test.clj</code>. The demo opens a customer stream and a
-    board stream over real HTTP, runs a few commands, and prints which stream received which event:
-    <code>cd clojure &amp;&amp; clojure -M -m lesson06.live</code>. At the REPL,
+  <div class="code-ref"><p>The code is in <code>clojure/src/lesson06/live.clj</code> (ns
+    <code>lesson06.live</code>), with tests in <code>clojure/test/lesson06/live_test.clj</code>. The
+    demo opens a customer stream and a board stream over real HTTP, runs a few commands, and prints
+    which stream received which event:
+    <code>cd clojure &amp;&amp; clojure -M -m lesson06.live</code>. Better yet, at the REPL, run
     <code>(lesson06.live/start! 8080)</code>, then open <code>/</code> in two browsers and
-    <code>/board</code> in a third.</p></div>
+    <code>/board</code> in a third, and play barista. It's more fun than it has any right to be.</p></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>view-for</code> (each subscriber's
-    whole view from the state, with the tab's draft and error), <code>broadcast</code> (the body of
-    <code>broadcast!</code>: render, skip identical, send) and <code>stream-lifecycle</code> (adopt the
-    tab's draft, subscribe, send the first view; on close, unsubscribe and drop the tab). Hints are on
-    the <a href="../exercises.html">exercises page</a>.</p>
+  <div class="build-it"><p>Your turn. The exercise track for this part: <code>view-for</code> (each
+    subscriber's whole view from the state, with the tab's draft and error), <code>broadcast</code>
+    (the body of <code>broadcast!</code>: render, skip identical, send) and
+    <code>stream-lifecycle</code> (adopt the tab's draft, subscribe, send the first view; on close,
+    unsubscribe and drop the tab). Hints are on the <a href="../exercises.html">exercises page</a>.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson06.live-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>Open one long-lived GET per page. Make commands 204 and let an atom watch
-    re-render every viewer's whole view, skipping the ones that came out the same. The morph keeps
-    focus and typing because it changes existing nodes in place and compares <code>value</code>
-    attributes, not live values. Whatever the server renders, it must know, keyed as narrowly as it
-    lives: per browser by cookie, per tab by a tab id. A shared compression context makes each
-    re-render cost tens of bytes, and because every new connection adopts the tab's signals and gets
-    the whole view, reconnects need no replay.</p></div>
+  <div class="takeaway"><p>Here's the whole part on a napkin. Open one long-lived GET per page. Make
+    commands 204 and let an atom watch re-render every viewer's whole view, skipping the ones that came
+    out the same. The morph keeps focus and typing because it changes existing nodes in place and
+    compares <code>value</code> attributes, not live values. Whatever the server renders, it must
+    know, keyed as narrowly as it lives: per browser by cookie, per tab by a tab id. A shared
+    compression context makes each re-render cost tens of bytes, and because every new connection
+    adopts the tab's signals and gets the whole view, reconnects need no replay. Wasteful? On paper.
+    In practice it's cheap, and it's hard to get wrong.</p></div>

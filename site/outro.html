@@ -1,16 +1,16 @@
-  <p>The capstone is the whole of Brew Board in <code>clojure/src/brewboard</code>: the hand-written
+  <p>And here's where it all comes together. The capstone is the whole of Brew Board in <code>clojure/src/brewboard</code>: the hand-written
     SSE writer, the menu and pure <code>handle-command</code>, whole-view renders for the customer
-    and the board, the broadcast hub, the reitit routes, and the native-shell routes. Start it and
+    and the board, the broadcast hub, the reitit routes, and the native-shell routes. Every piece you built, in one place. Start it and
     open the two pages side by side (two browsers, or one normal and one private window, so they get
-    different <code>sid</code> cookies):</p>
+    different <code>sid</code> cookies, because part 6 taught you what happens otherwise):</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M -m brewboard.main      # PORT env var, default 8080
 # customer: http://localhost:8080/      board: http://localhost:8080/board</code></pre>
   <p>Add a medium oat latte as Ada, place the order, advance it twice on the board, and mark oat milk
-    sold out: every open page follows along, and the customer's drop-down shows oat as sold out without
-    a reload. <code>clojure -M -m brewboard.demo</code> runs the same session headless over real HTTP
-    and prints what each stream received.</p>
-  <p><code>native/ios</code> and <code>native/android</code> hold small reference shells, a
+    sold out. Then just watch: every open page follows along, and the customer's drop-down shows oat as sold out without
+    a reload. It's a small thing, and it's oddly thrilling the first time. <code>clojure -M -m brewboard.demo</code> runs the same session headless over real HTTP
+    and prints what each stream received, for those of us who like to see the receipts.</p>
+  <p>One more thing. <code>native/ios</code> and <code>native/android</code> hold small reference shells, a
     WKWebView app and a WebView app, that load the same server, apply the served
     <code>/native/path-config</code> rules, and implement the <code>BrewShell</code> bridge from
-    part 7. They aren't built in CI; <code>native/README.md</code> says what was checked and how to run
+    part 7. They aren't built in CI (Xcode in CI is its own adventure); <code>native/README.md</code> says what was checked and how to run
     them against <code>localhost</code>.</p>

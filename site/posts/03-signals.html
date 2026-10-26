@@ -30,23 +30,27 @@
   <h1>Signals</h1>
   <p class="dek">Signals are Datastar's client-side state: named values that <code>data-*</code>
     attributes read and write, with dependency tracking so that changing one value re-runs exactly
-    the bindings that read it. They also ride along on every request. This part covers both
-    halves: what signals do in the browser, and what the server receives.</p>
+    the bindings that read it. Not more, not fewer. Exactly. They also ride along on every request,
+    like a kid brother you weren't allowed to leave at home. This part covers both halves: what
+    signals do in the browser, and what the server receives.</p>
 
   <div data-warmup></div>
 
-  <p>Parts 1 and 2 had the server push HTML into the page. Some interactions don't need the server
-    at all. Changing a quantity from 1 to 2 should update "Your drinks" and the draft summary
-    immediately, and a round trip for that would be silly. Other interactions need the browser to
-    tell the server something: which drink, which size, how many. Signals do both jobs. They hold
-    the values the page reacts to, and they are what <code>@get</code> serializes into the
-    <code>datastar</code> parameter. What signals do <em>not</em> do is decide anything: the price
-    of the draft, and whether it's a valid order at all, come back from the server as HTML.</p>
+  <p>So far, in parts 1 and 2, the server has been doing all the pushing: it shoves HTML into the
+    page and the page takes it. But some interactions don't need the server at all. Changing a
+    quantity from 1 to 2 should update "Your drinks" and the draft summary right now, and a round
+    trip for that would be silly. Other interactions need the browser to tell the server something:
+    which drink, which size, how many. Signals do both jobs. They hold the values the page reacts to,
+    and they are what <code>@get</code> serializes into the <code>datastar</code> parameter. Here's
+    what signals do <em>not</em> do, and it's the most important sentence in this part: they don't
+    decide anything. The price of the draft, and whether it's a valid order at all, come back from
+    the server as HTML.</p>
 
   <h2>The draft form</h2>
 
-  <p>Brew Board's customer configures a drink before adding it to the cart. Here is that form as
-    lesson 3 renders it. Every attribute that starts with <code>data-</code> is Datastar's.</p>
+  <p>Before a Brew Board customer adds a drink to the cart, they configure it. Here is that form as
+    lesson 3 renders it. Every attribute that starts with <code>data-</code> is Datastar's; the rest
+    is plain old HTML.</p>
 
 <pre><code class="language-clojure">(def initial-signals
   {:drink "latte" :size "medium" :milk "oat" :qty 1
@@ -74,71 +78,82 @@
   [:h3 "What @get('/quote') sends (no _ signals)"]
   [:pre {:data-json-signals "{exclude: /(^|\\.)_/}"}]]]</code></pre>
   <p class="caption">From <code>lesson03.signals/page</code>, with the option lists elided. The
-    selects are static here; part 4 makes the size and milk lists the server's job.</p>
+    selects are static here; part 4 makes the size and milk lists the server's job, which turns out
+    to be more interesting than it sounds.</p>
 
-  <p>Going through the attributes:</p>
+  <p>That's a lot of attributes. Let's go through them one at a time:</p>
 
   <ul>
     <li><strong><code>data-signals</code></strong> merges an object into the store. Its value is
-      an expression, so JSON works (JSON is a valid JavaScript object literal). A keyed form exists
-      too: <code>data-signals:qty="1"</code>. The value is <em>evaluated</em>, so a string
-      needs inner quotes: <code>data-signals:drink="'latte'"</code>.</li>
+      an expression, so JSON works (JSON is a valid JavaScript object literal, a happy accident we
+      get to exploit). A keyed form exists too: <code>data-signals:qty="1"</code>. Careful, though:
+      the value is <em>evaluated</em>, so a string needs inner quotes:
+      <code>data-signals:drink="'latte'"</code>. Forget them and Datastar evaluates <code>latte</code> as code,
+      not as text.</li>
     <li><strong><code>data-computed:_summary</code></strong> creates a read-only signal whose value
       is the expression. It recomputes when something it read changes. One medium oat latte reads
-      "1 × medium oat latte". It is pure formatting: it moves signal values into one string and
-      decides nothing. <code>_unit</code> is the same kind of thing, "drink" or "drinks". Both
-      names start with <code>_</code>, so neither is sent to the server (the next section but one).
-      Keys keep a leading underscore: the camel-casing in <code>utils/text.ts</code> only rewrites
-      <code>-x</code> to <code>X</code>.</li>
+      "1 × medium oat latte". It's pure formatting: it moves signal values into one string and
+      decides nothing. <code>_unit</code> is the same kind of thing, "drink" or "drinks", because
+      nobody wants to read "1 drinks". Both names start with <code>_</code>, so neither is sent to
+      the server (more on that in the next section but one). Keys keep a leading underscore: the
+      camel-casing in <code>utils/text.ts</code> only rewrites <code>-x</code> to <code>X</code>.</li>
     <li><strong><code>data-bind:qty</code></strong> wires an input to a signal in both directions.
-      The type follows the signal: <code>qty</code> started as the number 1, so typing "2" stores
-      the number 2, not the string. For a <code>select</code>, the binding listens for
-      <code>change</code>. For a number or range input it listens for <code>input</code>, so it
-      updates on every keystroke.</li>
+      Here's a nice touch: the type follows the signal. <code>qty</code> started as the number 1, so
+      typing "2" stores the number 2, not the string. For a <code>select</code>, the binding
+      listens for <code>change</code>. For a number or range input it listens for
+      <code>input</code>, so it updates on every keystroke.</li>
     <li><strong><code>data-text</code></strong>, <strong><code>data-show</code></strong>,
       <strong><code>data-class:busy</code></strong>, <strong><code>data-attr:disabled</code></strong>,
       and <strong><code>data-json-signals</code></strong> are effects (<code>data-show</code>, not used
-      on this page, is another). Each evaluates its expression
-      and writes the result into the element (text content, <code>display: none</code>, a class, an
+      on this page, is another). They all play the same game. Each evaluates its expression and
+      writes the result into the element (text content, <code>display: none</code>, a class, an
       attribute, a JSON dump), and does it again whenever the expression's inputs change.</li>
-    <li><strong><code>data-on:click</code></strong> runs an expression when the event fires.</li>
+    <li><strong><code>data-on:click</code></strong> runs an expression when the event fires. No
+      surprises there.</li>
     <li><strong><code>data-indicator:_loading</code></strong> sets <code>$_loading</code> to
-      <code>true</code> while a request is in flight and back to <code>false</code> after.
-      It only counts requests started <em>by the element it is on</em>. <code>indicator.ts</code>
-      compares the fetch event's element with its own and ignores the rest. Put it on the button
-      that has the <code>data-on:click</code>, or it never turns on. The lesson also declares
-      <code>_loading false</code> up front, because <code>#draft</code>'s <code>data-class:busy</code>
-      reads it before the button has been processed.</li>
+      <code>true</code> while a request is in flight and back to <code>false</code> after. And here's
+      the catch that gets everybody once: it only counts requests started <em>by the element it is
+      on</em>. <code>indicator.ts</code> compares the fetch event's element with its own and ignores
+      the rest. Put it on the button that has the <code>data-on:click</code>, or it never turns on,
+      and you'll stare at it wondering why. The lesson also declares <code>_loading false</code> up
+      front, because <code>#draft</code>'s <code>data-class:busy</code> reads it before the button
+      has been processed.</li>
   </ul>
 
   <h2>Why the signals are on a different element</h2>
 
-  <p>The signals are declared on <code>div#app</code>, and everything that reads them is inside
-    it. That isn't style. Datastar applies an element's <code>data-*</code> attributes in the
-    order they appear in the source (<code>applyEls</code> in <code>engine.ts</code> loops over
-    <code>el.dataset</code>), and it processes elements in document order, parents before
-    children. Hiccup, however, writes attributes sorted by name:
+  <p>You may have noticed the signals are declared on <code>div#app</code>, with everything that
+    reads them inside it. That's not a style preference. It's a workaround for a collision between
+    two perfectly reasonable behaviors. Datastar applies an element's <code>data-*</code>
+    attributes in the order they appear in the source (<code>applyEls</code> in
+    <code>engine.ts</code> loops over <code>el.dataset</code>), and it processes elements in
+    document order, parents before children. Hiccup, however, writes attributes sorted by name:
     <code>{:data-signals … :data-computed:_summary …}</code> comes out as
-    <code>data-computed:_summary="…" data-signals="…"</code>. On one element, the computed would
-    be set up before the signals it reads exist. Putting <code>data-signals</code> on an ancestor
-    removes the question: by the time Datastar reaches anything inside <code>#app</code>, the
-    store is populated. Make that a habit. One element declares, its descendants use.</p>
+    <code>data-computed:_summary="…" data-signals="…"</code>. Oops. On one element, the computed
+    would be set up before the signals it reads even exist. Putting <code>data-signals</code> on an
+    ancestor makes the question go away: by the time Datastar reaches anything inside
+    <code>#app</code>, the store is populated. Make that a habit. One element declares, its
+    descendants use.</p>
 
-  <p>Three rules about names save debugging time. Attribute keys are converted to camelCase, so
-    <code>data-bind:customer-name</code> creates <code>$customerName</code>. In an expression,
-    though, <code>$customer-name</code> means <code>$['customer-name']</code> (the rewrite rules in
-    <code>engine.ts</code> say so explicitly), which is a different signal. Use camelCase in
-    expressions, and put spaces around minus signs: <code>$qty-1</code> is the signal
-    <code>qty-1</code>, while <code>$qty - 1</code> is arithmetic. Second, reading a signal that doesn't exist creates it with the value
-    <code>''</code>, so a typo gives you an empty string instead of an error. Third, a name that
-    starts with an underscore is private to the browser. That's the next section.</p>
+  <p>And while we're here, three rules about names that will save you real debugging time. First,
+    attribute keys are converted to camelCase, so <code>data-bind:customer-name</code> creates
+    <code>$customerName</code>. In an expression, though, <code>$customer-name</code> means
+    <code>$['customer-name']</code> (the rewrite rules in <code>engine.ts</code> say so
+    explicitly), which is a <em>different signal</em>. Use camelCase in expressions, and put spaces
+    around minus signs: <code>$qty-1</code> is the signal <code>qty-1</code>, while
+    <code>$qty - 1</code> is arithmetic. Yes, really. Second, reading a signal that doesn't exist
+    creates it with the value <code>''</code>, so a typo gives you an empty string instead of an
+    error. Silent failure: everybody's favorite. Third, a name that starts with an underscore is
+    private to the browser. That's the next section.</p>
 
   <h2>What re-runs when a signal changes</h2>
 
-  <p>Nothing in that markup says "when <code>qty</code> changes, update the summary". Datastar works
-    that out by watching what each expression reads. Its store, in <code>engine/signals.ts</code>, follows
-    the alien-signals algorithm (the internal types are named <code>AlienSignal</code>,
-    <code>AlienComputed</code>, and <code>AlienEffect</code>). Simplified, it works like this:</p>
+  <p>Look at that markup again. Nothing in it says "when <code>qty</code> changes, update the
+    summary". So how does Datastar know? It works that out by watching what each expression reads.
+    Its store, in <code>engine/signals.ts</code>, follows the alien-signals algorithm (the internal
+    types are named <code>AlienSignal</code>, <code>AlienComputed</code>, and
+    <code>AlienEffect</code>, which is the best naming in the codebase). Simplified, it works like
+    this:</p>
 
 <pre class="pseudo">run(effect)
   activeSub = effect                 -- "whoever reads now, reads on my behalf"
@@ -156,33 +171,35 @@ write(signal, v)
   if not inside a batch -> flush the queue    -- data-on handlers run inside a batch
 </pre>
 
-  <p>Two consequences matter for writing pages. A binding re-runs only when a signal it actually
-    read on its last run changes. Since dependencies are collected on every run, a conditional
-    expression can change its own dependencies: <code>$open ? $a : $b</code> reads <code>$open</code> and one of the other two, and is linked
-    only to what it read last time. And writing the value a signal already has
-    does nothing at all, which is why a server can patch the same signals over and over without
-    making the page do work.</p>
+  <p>Two consequences matter for writing pages. One: a binding re-runs only when a signal it
+    actually read on its last run changes. And since dependencies are collected on every run, a
+    conditional expression can change its own dependencies: <code>$open ? $a : $b</code> reads
+    <code>$open</code> and one of the other two, and is linked only to what it read last time.
+    Clever, right? Two: writing the value a signal already has does nothing at all. That's why a
+    server can patch the same signals over and over without making the page lift a finger.</p>
 
-  <p>One more consequence is less obvious. An effect that reads a computed re-runs only if the
-    computed's <em>value</em> changed. Change the quantity from 2 to 3: <code>$_unit</code> has to
-    recompute, because it read <code>$qty</code>, but it comes out as "drinks" again. The heading's
-    <code>data-text</code> reads only <code>$_unit</code>, so it doesn't run. (<code>$_summary</code>
-    does change, so its binding runs.) The store checks whether a dirty computed actually changed
-    before running anything that depends on it.</p>
+  <p>There's one more consequence, and it's less obvious. An effect that reads a computed re-runs
+    only if the computed's <em>value</em> changed. Say you change the quantity from 2 to 3.
+    <code>$_unit</code> has to recompute, because it read <code>$qty</code>, but it comes out as
+    "drinks" again. The heading's <code>data-text</code> reads only <code>$_unit</code>, so it
+    doesn't run. (<code>$_summary</code> does change, so its binding runs.) The store checks whether
+    a dirty computed actually changed before running anything that depends on it. It's lazy in the
+    very best sense of the word.</p>
 
-  <p>Try it. Each button writes one signal. Accent marks the write, teal marks what re-ran, and the
-    rest stayed put.</p>
+  <p>Try it yourself. Each button writes one signal. Accent marks the write, teal marks what re-ran,
+    and the rest stayed put, minding their own business.</p>
 
   <div id="viz-graph"></div>
 
   <h2>What travels to the server</h2>
 
   <p>When the button runs <code>@get('/quote')</code>, the fetch plugin collects the signals it is
-    allowed to send and serializes them. The rule is in <code>fetch.ts</code>: the default filter
-    is <code>include /.*/</code>, <code>exclude /(^|\.)_/</code>. Any signal whose path has a
-    segment that starts with <code>_</code> stays in the browser. Computed signals are not
-    special. If the lesson had named it <code>data-computed:summary</code>, the summary string would
-    go to the server with every request. The underscore is what keeps it home.</p>
+    allowed to send and serializes them. Who's allowed? The rule is in <code>fetch.ts</code>: the
+    default filter is <code>include /.*/</code>, <code>exclude /(^|\.)_/</code>. Any signal whose
+    path has a segment that starts with <code>_</code> stays in the browser. Note that computed
+    signals get no special treatment. If the lesson had named it
+    <code>data-computed:summary</code>, the summary string would go to the server with every single
+    request. The underscore is the only thing keeping it home.</p>
 
   <div id="predict-sent"></div>
 
@@ -193,19 +210,20 @@ write(signal, v)
 {"drink":"latte","size":"medium","milk":"oat","qty":1}
 </pre>
 
-  <p><code>$_loading</code>, <code>$_summary</code>, and <code>$_unit</code> are not sent. That is
-    the point of the underscore: they exist for this tab's display, and the server has no use for
-    them. The lesson's page prints both views live with
-    <code>data-json-signals</code>: everything in the store, and the same filter the request
-    uses. You can override the filter per request with
+  <p><code>$_loading</code>, <code>$_summary</code>, and <code>$_unit</code> are not sent. That's
+    the whole point of the underscore: they exist for this tab's display, and the server has no use
+    for them whatsoever. The lesson's page prints both views live with
+    <code>data-json-signals</code>: everything in the store, and the same filter the request uses.
+    You can override the filter per request with
     <code>@get('/quote', {filterSignals: {include: /^drink$/}})</code>, but the default is almost
-    always what you want.</p>
+    always what you want. Almost.</p>
 
   <h2>Reading signals in Clojure</h2>
 
-  <p>For GET and DELETE the JSON is in the <code>datastar</code> query parameter. For POST, PUT,
-    and PATCH it is the request body, with <code>Content-Type: application/json</code>. That's
-    the whole contract (it's the <code>ReadSignals</code> table in the ADR):</p>
+  <p>Now let's switch sides and look at what the server gets. For GET and DELETE the JSON is in the
+    <code>datastar</code> query parameter. For POST, PUT, and PATCH it is the request body, with
+    <code>Content-Type: application/json</code>. And that's the whole contract (it's the
+    <code>ReadSignals</code> table in the ADR). Two cases. That's it:</p>
 
 <pre><code class="language-clojure">(defn read-signals
   "Read the signals Datastar sent. GET and DELETE send them as JSON in the datastar query
@@ -219,13 +237,14 @@ write(signal, v)
                  (try (json/parse-string raw true) (catch Exception _ nil)))]
     (if (map? parsed) parsed {})))</code></pre>
 
-  <p>The last two lines matter more than they look. The <code>datastar</code> parameter is text
-    anyone can type into a URL. <code>?datastar={oops</code> would make cheshire throw, and
-    <code>?datastar=[1,2]</code> parses to a vector that the handler's destructuring can't use.
-    Either one would be a 500. Treating both as "no signals" sends them down the normal path, where
-    validation answers "Pick a drink." The demo sends exactly that request.</p>
+  <p>The last two lines matter more than they look. Remember, the <code>datastar</code> parameter
+    is just text, and anyone can type anything into a URL. <code>?datastar={oops</code> would make
+    cheshire throw, and <code>?datastar=[1,2]</code> parses to a vector that the handler's
+    destructuring can't use. Either one would be a 500, which is a rude thing to hand somebody for a
+    typo. Treating both as "no signals" sends them down the normal path, where validation answers
+    "Pick a drink." The demo sends exactly that request, just to prove it.</p>
 
-  <p>And the handler behind "Ask the server". The server prices the draft from its own menu,
+  <p>And here's the handler behind "Ask the server". The server prices the draft from its own menu,
     validates the combination, and answers with one element: <code>#quote</code>, holding either
     the price or the reason the draft isn't valid.</p>
 
@@ -250,16 +269,19 @@ write(signal, v)
       {}))))</code></pre>
 
   <p><code>draft-error</code> returns a sentence or nil: "Espresso does not take that milk.",
-    "Quantity must be 1 to 10.", and so on. The router passes
-    <code>(read-signals req)</code> in, so the handler is a function of plain data.</p>
+    "Quantity must be 1 to 10.", and so on. The router passes <code>(read-signals req)</code> in, so
+    the handler is a function of plain data. No request object, no mocks, nothing to set up in a
+    test.</p>
 
   <p>Two medium oat lattes come back as <code>&lt;p id="quote"&gt;Server price:
-    &lt;strong&gt;$11.20&lt;/strong&gt;&lt;/p&gt;</code>: 450 + 50 + 60 = 560 cents, times 2.
-    An espresso with oat milk comes back as <code>&lt;p class="error" id="quote"&gt;Espresso does
-    not take that milk.&lt;/p&gt;</code>. Either way the browser morphs <code>#quote</code> and
-    nothing else changes. No signal holds the price or the error, so there is nothing for the page
-    to keep in sync: the next answer replaces the element, and a reload shows the server's initial
-    text.</p>
+    &lt;strong&gt;$11.20&lt;/strong&gt;&lt;/p&gt;</code>: 450 + 50 + 60 = 560 cents, times 2. (Told
+    you that latte would follow us around.) An espresso with oat milk comes back as
+    <code>&lt;p class="error" id="quote"&gt;Espresso does
+    not take that milk.&lt;/p&gt;</code>.
+    Either way the browser morphs <code>#quote</code> and nothing else changes. No signal holds the
+    price or the error, so there's nothing for the page to keep in sync: the next answer replaces
+    the element, and a reload shows the server's initial text. Nothing to go stale, because there's
+    nothing to remember.</p>
 
   <p>Step through one click of "Ask the server" with two lattes in the draft:</p>
 
@@ -267,72 +289,76 @@ write(signal, v)
 
   <h2>Why the browser doesn't compute the price</h2>
 
-  <p>The tempting move is to ship the menu as a private signal, <code>$_prices</code>, and add
-    <code>data-computed:estimate</code> that multiplies it out. The price would update on every
-    click with no request. Lesson 3 doesn't do this, and it's worth being clear why. It writes the
-    pricing rule twice, once in Clojure and once in a JavaScript expression, and the two copies
-    drift. Change oat to 70 cents, add a discount for a second drink, or make chai large-only, and
-    the browser's copy is wrong until somebody remembers it exists. The server has to price the
-    order again when it's placed anyway, so the browser copy saves no work. And when the copies
-    disagree, the page shows the customer a price you won't charge.</p>
+  <p>I know what you're thinking, because everybody thinks it. Ship the menu as a private signal,
+    <code>$_prices</code>, add a <code>data-computed:estimate</code> that multiplies it out, and the
+    price updates on every click with no request at all. Lesson 3 doesn't do this, and it's worth
+    being really clear why. It writes the pricing rule twice, once in Clojure and once in a
+    JavaScript expression, and the two copies drift. They always drift. Change oat to 70 cents, add
+    a discount for a second drink, or make chai large-only, and the browser's copy is wrong until
+    somebody remembers it exists. And nobody remembers it exists. The server has to price the order
+    again when it's placed anyway, so the browser copy saves no work. And when the copies disagree,
+    the page shows the customer a price you won't charge. That's not a bug report. That's an angry
+    email.</p>
 
-  <p>The rule is short. Expressions may format and move values, count things, toggle flags, and
-    manage focus. They never derive a business value (a price, a total, eligibility, a validation
-    result). If you want the price to follow every change, ask the server on every change:
-    <code>data-on:change="@get('/quote')"</code> on <code>#draft</code> catches the
-    <code>change</code> events bubbling up from the selects, and part 4 shows why a burst of them
-    is harmless (a new request to the same URL cancels the old one).</p>
+  <p>The rule is short enough to tattoo somewhere. Expressions may format and move values, count
+    things, toggle flags, and manage focus. They never derive a business value (a price, a total,
+    eligibility, a validation result). If you want the price to follow every change, then ask the
+    server on every change: <code>data-on:change="@get('/quote')"</code> on <code>#draft</code>
+    catches the <code>change</code> events bubbling up from the selects, and part 4 shows why a burst
+    of them is harmless (a new request to the same URL cancels the old one).</p>
 
-  <h2>When a signal is the wrong tool</h2>
+  <h2>When a signal is the wrong tool (or: how to accidentally rebuild your SPA)</h2>
 
   <p>The draft form shows the right use. Signals hold the user's in-progress input, and
-    presentation-only values formatted from it. The browser can do all of that alone. It's tempting to go
-    further: put the cart in a signal, put the order list in a signal, render everything from
-    signals with <code>data-text</code> and friends, and use the server as a JSON API. That turns
-    Datastar back into the single-page application it was designed to replace, with a worse
-    templating language.</p>
+    presentation-only values formatted from it. The browser can handle all of that by itself. But
+    once you've got a hammer this nice, everything starts looking like a nail. Put the cart in a
+    signal! Put the order list in a signal! Render everything from signals with
+    <code>data-text</code> and friends, and use the server as a JSON API! And congratulations: you've
+    turned Datastar back into the single-page application it was designed to replace, except now
+    with a worse templating language.</p>
 
   <p>That's why the quote is HTML. The server could have sent <code>{"quote": 1120, "error":
     ""}</code> with <code>patch-signals</code>, but then the page has to know where to show a number,
-    how to format cents, when to hide the error line, and it holds two signals whose only job is
-    to mirror what the server said. Rendered as HTML, the wording, the currency format, and the
-    error text are all server code, and the page holds nothing. <code>patch-signals</code> still has
-    a real job: the server writing into the user's own input, as when part 4 resets
-    <code>$size</code> because the new drink doesn't come in medium. Part 4 makes this a rule,
-    places every piece of Brew Board's state, and builds the drop-down where the decision is least
-    obvious.</p>
+    how to format cents, when to hide the error line, and it's stuck holding two signals whose only
+    job is to parrot what the server said. Rendered as HTML, the wording, the currency format, and
+    the error text are all server code, and the page holds nothing. <code>patch-signals</code> still
+    has a real job, mind you: the server writing into the user's own input, as when part 4 resets
+    <code>$size</code> because the new drink doesn't come in medium. Part 4 turns this into a rule,
+    finds a home for every piece of Brew Board's state, and builds the drop-down where the decision
+    is least obvious.</p>
 
   <div class="aside"><p><strong>Tip.</strong> <code>@post('/orders', {contentType: 'form'})</code>
     sends the fields of the closest <code>&lt;form&gt;</code> (or the one a <code>selector</code>
-    option names) <em>instead of</em> the signals: in <code>fetch.ts</code> the form branch never
-    calls the signal filter, so no signal reaches the server. It also runs the browser's form
-    validation first and throws <code>FetchFormNotFound</code> if there's no form. Use it for a real
-    form submission (a file upload, a plain HTML form), never where the handler needs the
-    signals.</p></div>
+    option names) <em>instead of</em> the signals. Instead, not as well: in <code>fetch.ts</code> the
+    form branch never calls the signal filter, so no signal reaches the server. It also runs the
+    browser's form validation first and throws <code>FetchFormNotFound</code> if there's no form. Use
+    it for a real form submission (a file upload, a plain HTML form), never where the handler needs
+    the signals.</p></div>
 
-  <div class="code-ref"><p><code>clojure/src/lesson03/signals.clj</code> (ns
+  <div class="code-ref"><p>The code is in <code>clojure/src/lesson03/signals.clj</code> (ns
     <code>lesson03.signals</code>): the draft page, <code>read-signals</code>,
     <code>price-cents</code>, <code>draft-error</code>, and <code>quote-response</code>, with the
     SSE writer copied into <code>lesson03.sse</code>. The demo sends the exact GET the button
     sends (signals URL-encoded in <code>datastar</code>) for two oat lattes, then an espresso with
     oat milk (which the static selects allow and the server rejects), then the same signals as a
-    POST body, then a hand-made request whose <code>datastar</code> parameter isn't JSON:
-    <code>cd clojure &amp;&amp; clojure -M -m lesson03.signals</code>. In a browser,
-    <code>(start! 8080)</code> and watch the network tab while you change the quantity: the
-    summary updates and no request goes out until you press the button.</p></div>
+    POST body, then a hand-made request whose <code>datastar</code> parameter isn't JSON, just to be
+    mean: <code>cd clojure &amp;&amp; clojure -M -m lesson03.signals</code>. In a browser,
+    <code>(start! 8080)</code> and watch the network tab while you change the quantity. The summary
+    updates and no request goes out until you press the button. It's oddly satisfying to watch
+    nothing happen.</p></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>read-signals</code> (query param
-    for GET/DELETE, body otherwise, and <code>{}</code> for anything that isn't a JSON object),
-    <code>price-cents</code> (base + size delta + milk delta), and <code>quote-response</code>
-    (validate with <code>draft-error</code>, then patch <code>#quote</code> with the price or the
-    reason). Hints are on the
+  <div class="build-it"><p>Your turn. The exercise track for this part: <code>read-signals</code>
+    (query param for GET/DELETE, body otherwise, and <code>{}</code> for anything that isn't a JSON
+    object), <code>price-cents</code> (base + size delta + milk delta), and
+    <code>quote-response</code> (validate with <code>draft-error</code>, then patch
+    <code>#quote</code> with the price or the reason). Hints are on the
     <a href="../exercises.html">exercises page</a>.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson03.signals-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>A signal is a named reactive value. Bindings re-run only when a signal
-    they read changes value; computed signals recompute lazily. Every signal whose name (or path
-    segment) doesn't start with <code>_</code> is sent with every request, in the
+  <div class="takeaway"><p>Here's the napkin. A signal is a named reactive value. Bindings re-run
+    only when a signal they read changes value; computed signals recompute lazily. Every signal whose
+    name (or path segment) doesn't start with <code>_</code> is sent with every request, in the
     <code>datastar</code> query param for GET/DELETE and as the JSON body otherwise. Use signals for
-    input and presentation; let the server decide what's true, and send its answer as HTML.</p></div>
+    input and presentation. Let the server decide what's true, and send its answer as HTML.</p></div>

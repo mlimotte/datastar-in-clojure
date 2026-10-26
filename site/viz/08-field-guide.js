@@ -12,38 +12,38 @@
     { name: "Size options for the chosen drink",
       steps: [["stop", "The options depend on the menu and on stock, which only the server knows. Part 4's drop-down asks <code>@get('/drink-options')</code> (part 6 turns it into <code>@post('/draft')</code>), and the server renders the <code>&lt;option&gt;</code>s."]] },
     { name: "Receipt panel opens and closes",
-      steps: [["skip", "Nothing the server needs to know. A request per toggle would buy only \"stays open after a reload\"."],
+      steps: [["skip", "Nothing the server needs to know. A request per toggle would buy you exactly one thing, \"stays open after a reload\", and you probably don't want it."],
               ["stop", "<code>&lt;details&gt;&lt;summary&gt;Receipt&lt;/summary&gt;…&lt;/details&gt;</code>. No signal, no request. Inside a re-rendered region, add <code>data-preserve-attr=\"open\"</code> so the morph leaves the user's choice alone."]] },
     { name: "Order details as a popup",
       steps: [["skip", "The details can come from the server, but opening and closing is presentation."],
-              ["stop", "<code>&lt;button popovertarget=\"order-7\"&gt;</code> and <code>&lt;div id=\"order-7\" popover&gt;</code>. The browser handles open, close, Escape and click-outside."]] },
+              ["stop", "<code>&lt;button popovertarget=\"order-7\"&gt;</code> and <code>&lt;div id=\"order-7\" popover&gt;</code>. The browser handles open, close, Escape and click-outside, for free, forever."]] },
     { name: "Hide the error line when there is no error",
       steps: [["skip", "The server already renders the message (or an empty element). Whether an empty element takes space is presentation."],
               ["skip", "No element means \"hide me when I'm empty\", and the id has to stay so the next render can fill it."],
               ["stop", "<code>#draft-error:empty { display: none }</code>. No <code>data-show</code> needed."]] },
     { name: "Highlight the row under the pointer",
-      steps: [["skip", "A request per mouse move, for no information."],
+      steps: [["skip", "A request per mouse move, for no information. Your server would like a word."],
               ["skip", "No hover element in HTML."],
               ["stop", "<code>#board li:hover { background: … }</code>"]] },
     { name: "Live character count on the order note",
-      steps: [["skip", "A request per keystroke for a value the browser already has."],
+      steps: [["skip", "A request per keystroke, for a value the browser already has. No."],
               ["skip", "<code>maxlength=\"80\"</code> caps the length but doesn't show a count. Keep it anyway: it's the native rung doing what it can."],
               ["skip", "CSS can't count characters."],
-              ["stop", "<code>data-text=\"$note.length + ' / 80'\"</code>. UI bookkeeping: it formats a value the user typed and derives no business rule. The server still enforces 80."]] },
+              ["stop", "<code>data-text=\"$note.length + ' / 80'\"</code>. UI bookkeeping: it formats a value the user typed and derives no business rule. The server still enforces 80, because the browser is not to be trusted."]] },
     { name: "Disable Add while its request is in flight",
-      steps: [["skip", "The server can't answer \"you're waiting for me\" before it has answered."],
+      steps: [["skip", "The server can't answer \"you're waiting for me\" before it has answered. Chicken, meet egg."],
               ["skip", "No native notion of a pending fetch."],
               ["skip", "CSS can't see fetch state."],
-              ["stop", "<code>data-indicator:_adding</code> on the button that runs <code>@post</code>, and <code>data-attr:disabled=\"$_adding\"</code>. Datastar turns it off in a <code>finally</code>, even after a network error."]] },
+              ["stop", "<code>data-indicator:_adding</code> on the button that runs <code>@post</code>, and <code>data-attr:disabled=\"$_adding\"</code>. Datastar turns it off in a <code>finally</code>, even after a network error. It always comes down."]] },
     { name: "Back button returns to the filtered board",
       steps: [["skip", "An <code>@get</code> re-render filters the board, but the URL doesn't change, so Back leaves the page."],
-              ["stop", "<code>&lt;form method=\"get\" action=\"/board\"&gt;</code>: a full page load. The URL holds the filter, and Back and bookmarks work with no code. Only if a reload is too slow do you climb to rung 5 for <code>pushState</code>."]] },
+              ["stop", "<code>&lt;form method=\"get\" action=\"/board\"&gt;</code>: a full page load. The URL holds the filter, and Back and bookmarks work with no code at all. Only if a reload is too slow do you climb to rung 5 for <code>pushState</code>."]] },
     { name: "Haptic tap when an order is ready (native shell)",
-      steps: [["skip", "The server decides <em>when</em> (part 7's stream), but it can't reach the phone's motor."],
+      steps: [["skip", "The server decides <em>when</em> (part 7's stream), but it can't reach out and buzz the phone's motor."],
               ["skip", "No HTML element drives native APIs."],
               ["skip", "CSS can't either."],
               ["skip", "Datastar has no attribute for a native bridge."],
-              ["stop", "The <code>window.BrewShell.post</code> shim from part 7. Custom JS, listed and justified in the page's one glue script."]] },
+              ["stop", "The <code>window.BrewShell.post</code> shim from part 7. Custom JS, finally, listed and justified in the page's one glue script. It earned its spot."]] },
   ];
 
   function ladderFrames(c) {
@@ -51,7 +51,7 @@
     c.steps.forEach((s, i) => frames.push({ upto: i, verdicts: c.steps.slice(0, i + 1), note: s[1] }));
     const last = c.steps.length - 1;
     frames.push({ upto: last, verdicts: c.steps, done: true,
-      note: `Stops at rung ${last + 1}, <b>${RUNGS[last]}</b>.` + (last > 0 ? ` Leave a one-line comment saying why rung${last > 1 ? "s" : ""} 1${last > 1 ? "–" + last : ""} didn't work.` : " Most Brew Board interactions stop here.") });
+      note: `Stops at rung ${last + 1}, <b>${RUNGS[last]}</b>.` + (last > 0 ? ` Leave a one-line comment saying why rung${last > 1 ? "s" : ""} 1${last > 1 ? "–" + last : ""} didn't work.` : " Most Brew Board interactions stop right here, at the top.") });
     return frames;
   }
 
@@ -87,10 +87,10 @@
 
   if (document.querySelector("#predict-ladder")) {
     predict("#predict-ladder", {
-      prompt: "Ada's receipt panel opens and closes. Nothing else depends on it. Where should its open/closed state live?",
+      prompt: "Ada's receipt panel opens and closes. Nothing else depends on it. Where should its open/closed state live? (Think ladder.)",
       choices: ["An <code>_open</code> signal, with <code>data-show</code>", "On the server, re-rendered on each toggle", "In a native <code>&lt;details&gt;</code> element"],
       answer: 2,
-      explain: "Rung 2. The browser keeps the state, and you get keyboard handling and accessibility with zero code and zero requests. A signal works, but it's state you now own for no gain. The server is right only if the state must survive a reload or matter to other viewers. Inside a re-rendered region, add <code>data-preserve-attr=\"open\"</code> (see below).",
+      explain: "Rung 2. The browser keeps the state, and you get keyboard handling and accessibility with zero code and zero requests. A signal works, but then it's state you own, for no gain whatsoever. The server is right only if the state must survive a reload or matter to other viewers. Inside a re-rendered region, add <code>data-preserve-attr=\"open\"</code> (see below).",
     });
   }
 
@@ -119,12 +119,12 @@
     const atPointer = afterRows[POINTER_SLOT];
     return [
       { rows: before, wire: "", note: "Sam's pointer rests on row 3, the Advance button for #3 (Linus). The board is sorted: ready, then making, then placed." },
-      { rows: before, wire: "POST /orders/3/advance  →  204, the command changes state", hl: 3, note: "Sam clicks. The server moves #3 from placed to making." },
+      { rows: before, wire: "POST /orders/3/advance  →  204, the command changes state", hl: 3, note: "Sam clicks. The server moves #3 from placed to making. So far, so good." },
       { rows: before, wire, hl: 3, note: mode === 0
           ? `The stream sends the whole board: ${BYTES.whole} bytes for 4 rows. The morph matches every &lt;li&gt; by id and reorders them by moving nodes, not rebuilding them.`
           : `The server sends only #order-3: ${BYTES.targeted} bytes. Every other row is untouched.` },
       { rows: afterRows, wire, hl: 3, pointer: true, note: mode === 0
-          ? `Sorted and correct, but row 3 now holds <b>#${atPointer.id} (${atPointer.who})</b>. A second click advances the wrong order.`
+          ? `Sorted and correct, but row 3 now holds <b>#${atPointer.id} (${atPointer.who})</b>. A second click advances the wrong order. Oops.`
           : `Row 3 still holds #3, now "making", sitting between two "placed" rows. Nothing moved under the pointer, but the board is no longer sorted, and any count or heading that depends on status is stale until something re-renders it.` },
     ];
   }
@@ -148,7 +148,7 @@
 
   if (document.querySelector("#predict-pointer")) {
     predict("#predict-pointer", {
-      prompt: "Sam's pointer rests on row 3's Advance button (order #3, placed). He clicks once. Brew Board re-renders the whole board, sorted by status. What is under his pointer now?",
+      prompt: "Sam's pointer rests on row 3's Advance button (order #3, placed). He clicks once. Brew Board re-renders the whole board, sorted by status. What is under his pointer now? Think about it before you answer.",
       choices: ["#3's button, now showing \"making\"", "#2's button (Grace)", "Nothing: the list was rebuilt, so the button lost its hover"],
       answer: 1,
       explain: "#3 sorts above the placed orders, so it moves up to row 2 and Grace's #2 slides down into row 3. The morph keeps each &lt;li&gt; (same node, same listeners) and moves it; the hover goes to whatever is under the pointer now. Step the figure above in \"Whole view\" mode to see it.",
@@ -176,14 +176,14 @@
         note: `t=${T_LAT} ms. "lat". The URL string differs, so it's a different abort-map key: both requests are now in flight.${mode === 2 ? " <code>$seq</code> is 2; the server records 2 as the newest for this tab." : ""}` });
     }
     F.push({ t: ARR_LAT, reqs: [{ q: "la", url: url1, state: mode === 1 ? "aborted" : "flight" }, { q: "lat", url: url2, state: "done" }], page: 'results for "lat"',
-      note: `t=${ARR_LAT} ms. The fast "lat" answer arrives and is morphed in.` });
+      note: `t=${ARR_LAT} ms. The fast "lat" answer arrives first and is morphed in. Looks right. For now.` });
     const laEnd = ["applied", "aborted", "ignored"][mode];
     F.push({ t: ARR_LA, reqs: [{ q: "la", url: url1, state: laEnd }, { q: "lat", url: url2, state: mode === 0 ? "overwritten" : "done" }],
       page: mode === 0 ? 'results for "la"' : 'results for "lat"', bad: mode === 0,
       note: [
-        `t=${ARR_LA} ms. The slow "la" answer arrives last and is applied last. Ada typed "lat" but sees results for "la", and nothing will correct it until she types again.`,
+        `t=${ARR_LA} ms. The slow "la" answer arrives last and is applied last. Ada typed "lat" but sees results for "la", and nothing will correct it until she types again. Last one in wins.`,
         `t=${ARR_LA} ms. The server finishes "la" (aborting is client-side; the handler ran anyway), but the connection is gone, so nothing reaches the page.`,
-        `t=${ARR_LA} ms. The server sees seq 1 &lt; newest 2 for this tab and answers <code>204</code>. Datastar applies nothing for a 204.`,
+        `t=${ARR_LA} ms. The server sees seq 1 &lt; newest 2 for this tab and answers <code>204</code>. Datastar applies nothing for a 204. Crisis averted.`,
       ][mode] });
     return F;
   }

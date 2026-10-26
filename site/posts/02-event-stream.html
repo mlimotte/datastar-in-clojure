@@ -20,19 +20,22 @@
   .ps-col pre { font: .74rem/1.4 var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0; padding: .4rem .5rem; background: var(--bg-sunk); border-radius: 6px; min-height: 4rem; }
 </style>
   <h1>The event stream</h1>
-  <p class="dek">Datastar's server side is a text format with two event types and a handful of
-    options. We write the whole thing (six short functions of Clojure), test it against the
-    expected output Datastar publishes for its own SDKs, and then hold a stream open so the
-    server can keep talking.</p>
+  <p class="dek">Here's something that sounds like it should be bigger than it is: Datastar's entire
+    server side is a text format with two event types and a handful of options. That's the whole
+    protocol. We write all of it (six short functions of Clojure), test it against the expected
+    output Datastar publishes for its own SDKs, and then hold a stream open so the server can keep
+    talking. And talking. And talking.</p>
 
   <div data-warmup></div>
 
-  <p>Part 1 wrote one event by hand. That's enough to say hello, but Brew Board needs more: replace
-    a cart, append an order to the barista's list, remove a picked-up order, set a signal, run a
-    line of JavaScript. All of those are options on two event types. The Datastar repository has an
-    <code>sdk/ADR.md</code> that specifies them for anyone writing a server library, and a directory
-    of test cases (<code>sdk/test/get-cases</code>) with the exact bytes each call must produce.
-    Datastar's own SDKs are written against those. So is ours.</p>
+  <p>Part 1 wrote one event by hand. That's plenty for saying hello, but Brew Board has bigger
+    ambitions. It needs to replace a cart, append an order to the barista's list, remove a picked-up
+    order, set a signal, and run a line of JavaScript. Five jobs! Surely that's five formats? Nope.
+    All of those are options on two event types. The Datastar repository has an
+    <code>sdk/ADR.md</code> that spells them out for anyone writing a server library, plus a
+    directory of test cases (<code>sdk/test/get-cases</code>) with the exact bytes each call must
+    produce. Datastar's own SDKs are written against those. So is ours. Which means when our tests
+    pass, we're not "roughly compatible." We're byte-for-byte compatible.</p>
 
   <h2>One function writes every event</h2>
 
@@ -45,14 +48,16 @@
        (string/join (map #(str "data: " % "\n") data-lines))
        "\n"))</code></pre>
 
-  <p>The ADR fixes the order: <code>event</code>, then <code>id</code> if there is one, then
-    <code>retry</code> unless it is the default of 1000&nbsp;ms, then the data lines, then a blank
-    line. <code>id</code> and <code>retry</code> are standard SSE fields, not Datastar inventions.
-    When a stream drops and Datastar reconnects, it sends the last id it saw as a
+  <p>The ADR fixes the order, and it's not up for debate: <code>event</code>, then <code>id</code> if
+    there is one, then <code>retry</code> unless it is the default of 1000&nbsp;ms, then the data
+    lines, then a blank line. By the way, <code>id</code> and <code>retry</code> aren't Datastar
+    inventions. They're standard SSE fields, and they earn their keep when things go wrong. When a
+    stream drops and Datastar reconnects, it sends the last id it saw as a
     <code>last-event-id</code> request header, and a <code>retry</code> field sets how long it
-    waits before reconnecting. Part 6 uses both. For one-shot responses you'll rarely set them.</p>
+    waits before reconnecting. Part 6 uses both. For one-shot responses you'll rarely bother.</p>
 
-  <p>Everything else is a function that decides which data lines to pass.</p>
+  <p>Everything else, and I do mean everything, is a function that decides which data lines to
+    pass to that one. It's turtles, but only one turtle.</p>
 
   <h2>datastar-patch-elements</h2>
 
@@ -69,8 +74,9 @@
     </tbody>
   </table></div>
 
-  <p>Defaults are omitted, so the common case is a single <code>elements</code> line, which is
-    exactly part 1's event. The eight modes are where the decisions are:</p>
+  <p>Defaults are left out, so the common case is a single <code>elements</code> line, which is
+    exactly part 1's event. (See? You already knew this.) The eight modes are where the actual
+    decisions live:</p>
 
   <div class="table-wrap"><table class="data">
     <thead><tr><th>mode</th><th>does</th><th>morphs?</th><th>needs selector?</th></tr></thead>
@@ -84,18 +90,21 @@
     </tbody>
   </table></div>
 
-  <p>The last column comes from one line in <code>patchElements.ts</code>: if there is no
-    selector and the mode is neither <code>outer</code> nor <code>replace</code>, Datastar throws
-    <code>PatchElementsExpectedSelector</code>. Only those two modes can find their target from
-    the payload's ids. A selector, on the other hand, can match many elements. Datastar runs
+  <p>That last column isn't folklore. It comes from one line in <code>patchElements.ts</code>: if
+    there is no selector and the mode is neither <code>outer</code> nor <code>replace</code>,
+    Datastar throws <code>PatchElementsExpectedSelector</code>. Think about why. Only those two
+    modes can find their target from the payload's ids; "append" to <em>what</em>, exactly? A
+    selector, on the other hand, can match lots of elements. Datastar runs
     <code>querySelectorAll</code> and applies the patch to every match, so
-    <code>mode remove</code> with <code>selector .picked-up</code> deletes all of them.</p>
+    <code>mode remove</code> with <code>selector .picked-up</code> deletes all of them in one go.
+    Handy. Also, occasionally, alarming.</p>
 
-  <p>"Morphs" is the difference between <code>outer</code> and <code>replace</code>. Both put
-    the new element where the old one was. <code>outer</code> walks old and new together and
-    changes only what differs, so a text input the user is typing in keeps its focus and cursor.
-    <code>replace</code> throws the old element away. Part 6 sends a whole page view on every
-    change and relies on <code>outer</code> to make that harmless.</p>
+  <p>"Morphs" is the whole difference between <code>outer</code> and <code>replace</code>, and it's
+    a bigger difference than it looks. Both put the new element where the old one was.
+    <code>outer</code> walks old and new together and changes only what differs, so a text input
+    the user is typing in keeps its focus and cursor. <code>replace</code> throws the old element in
+    the trash, focus, cursor and all. Part 6 sends a whole page view on every change, which sounds
+    insane, and relies on <code>outer</code> to make that harmless.</p>
 
 <pre><code class="language-clojure">(defn patch-elements
   "A datastar-patch-elements event. Send only options that differ from the defaults."
@@ -116,13 +125,14 @@
   [selector opts]
   (patch-elements nil (assoc opts :selector selector :mode :remove)))</code></pre>
 
-  <p>Multi-line HTML becomes several <code>elements</code> lines. That's not optional: a raw
-    newline inside a data line would end the line, and the rest of the HTML would arrive as a
-    malformed field. On the browser side the parser groups data lines by key and joins each
-    group with <code>\n</code>, so the HTML arrives back in one piece.</p>
+  <p>Multi-line HTML becomes several <code>elements</code> lines. That's not a style choice. A raw
+    newline inside a data line would end the line right there, and the rest of your HTML would
+    arrive as a malformed field, which is a fun one to debug. On the browser side, the parser groups
+    data lines by key and joins each group with <code>\n</code>, so the HTML arrives back in one
+    piece, none the worse for the trip.</p>
 
-  <p>Build some events. Change the mode, the selector, and the HTML, and watch both the wire
-    text and what the toy page does with it.</p>
+  <p>Now go build some events. Change the mode, the selector, and the HTML, and watch both the
+    wire text and what the toy page does with it. Try to break it. That's half the fun.</p>
 
   <div id="predict-inner"></div>
 
@@ -130,22 +140,25 @@
 
   <h2>The order of data lines doesn't matter</h2>
 
-  <p>Look at the SDK test cases closely and you'll find that they disagree. In
-    <code>patchElementsWithAllOptions</code> the <code>selector</code> line comes before
-    <code>mode</code>. In <code>removeElementsWithDefaults</code> and in every
-    <code>executeScript</code> case, <code>mode</code> comes first. Both are correct. The
-    script that runs those tests, <code>sdk/test/compare-sse.sh</code>, sorts data lines by key
-    before comparing, keeping the order of lines within a key. That matches the browser: in
-    <code>fetch.ts</code>, the message handler splits each data line at its first space and
-    collects lines into a map keyed by the word before it. Only the order of lines that share a key
-    (the lines of one HTML block) is significant. The golden-file test in our lesson normalizes
-    the same way, so it can pass with either order.</p>
+  <p>Here's a little puzzle. Look at the SDK test cases closely, and you'll find that they
+    <em>disagree with each other</em>. In <code>patchElementsWithAllOptions</code> the
+    <code>selector</code> line comes before <code>mode</code>. In
+    <code>removeElementsWithDefaults</code> and in every <code>executeScript</code> case,
+    <code>mode</code> comes first. So which one's right? Both are. The script that runs those
+    tests, <code>sdk/test/compare-sse.sh</code>, sorts data lines by key before comparing, keeping
+    the order of lines within a key. And that matches the browser: in <code>fetch.ts</code>, the
+    message handler splits each data line at its first space and collects lines into a map keyed
+    by the word before it. Only the order of lines that share a key (the lines of one HTML block)
+    is significant. Our lesson's golden-file test normalizes the same way, so it passes with either
+    order. Mystery solved, and nobody had to file a bug.</p>
 
   <h2>Reading a stream, from the browser's side</h2>
 
-  <p>The network doesn't deliver events. It delivers chunks of bytes, and a chunk boundary can
-    fall anywhere, including the middle of a line. Datastar's reader in <code>fetch.ts</code> is a
-    three-stage pipeline: bytes to lines, lines to messages, messages to patches.</p>
+  <p>Let's walk around to the other side of the counter for a minute. The network doesn't deliver
+    events. It delivers chunks of bytes, and it has no respect whatsoever for your formatting: a
+    chunk boundary can fall anywhere, including smack in the middle of a line. So Datastar's reader
+    in <code>fetch.ts</code> is a three-stage pipeline: bytes to lines, lines to messages, messages
+    to patches.</p>
 
 <pre class="pseudo">on chunk(bytes)
   buffer = buffer ++ bytes
@@ -166,18 +179,20 @@ dispatch(message)
   apply(message.event, args)                 -- patch elements or patch signals
 </pre>
 
-  <p>Step through a stream that arrives in awkward pieces. Nothing happens to the page until a
-    blank line completes an event, and the chunk boundaries never matter.</p>
+  <p>Step through a stream that arrives in deliberately awkward pieces. Notice that nothing
+    happens to the page until a blank line completes an event, and the chunk boundaries never
+    matter. Not once. The buffer just shrugs and waits.</p>
 
   <div id="viz-parse"></div>
 
   <h2>datastar-patch-signals</h2>
 
-  <p>The second event type changes signals instead of elements. Part 3 explains signals
-    properly. For now: they're the page's reactive values, a JSON-shaped tree. The event carries
-    a JSON object and applies it as an <a href="https://datatracker.ietf.org/doc/html/rfc7386">RFC
-    7386 JSON Merge Patch</a>: keys in the patch are set, nested objects merge recursively, and a
-    <code>null</code> value removes the signal.</p>
+  <p>The second event type changes signals instead of elements. Part 3 explains signals properly,
+    so I'll give you just the elevator pitch: they're the page's reactive values, arranged as a
+    JSON-shaped tree. The event carries a JSON object and applies it as an
+    <a href="https://datatracker.ietf.org/doc/html/rfc7386">RFC
+    7386 JSON Merge Patch</a>. That's a fancy name for three simple rules: keys in the patch are
+    set, nested objects merge recursively, and a <code>null</code> value removes the signal.</p>
 
 <pre><code class="language-clojure">(defn patch-signals
   "A datastar-patch-signals event. Signals is a map (encoded as JSON) or a JSON string.
@@ -188,26 +203,28 @@ dispatch(message)
                       (prefix-lines "signals" (cond-&gt; signals (not (string? signals)) json/generate-string)))
               opts))</code></pre>
 
-  <p><code>(patch-signals {:quote 560 :error nil} {})</code> produces:</p>
+  <p>So <code>(patch-signals {:quote 560 :error nil} {})</code> produces:</p>
 
 <pre class="pseudo">event: datastar-patch-signals
 data: signals {"quote":560,"error":null}
 </pre>
 
-  <p>which sets <code>$quote</code> to 560 and removes <code>$error</code>.
-    <code>onlyIfMissing true</code> sets only the keys that don't exist yet. That's useful for
-    defaults that must not clobber what the user already typed.</p>
+  <p>which sets <code>$quote</code> to 560 (hello again, medium oat latte) and removes
+    <code>$error</code>. And <code>onlyIfMissing true</code> sets only the keys that don't exist yet.
+    That's exactly what you want for defaults that must not clobber what the user already typed,
+    because nothing endears you to users like erasing their input.</p>
 
-  <div class="aside"><p>The browser parses the payload with <code>JSON.parse</code>. If that
-    fails, <code>jsStrToObject</code> in <code>utils/text.ts</code> falls back to evaluating the
-    string as a JavaScript expression, so <code>{quote: 560}</code> without quoted keys would also
-    work. Don't rely on it. cheshire produces real JSON, and real JSON never goes through the
-    evaluator.</p></div>
+  <div class="aside"><p>A curious bit of trivia. The browser parses the payload with
+    <code>JSON.parse</code>. If that fails, <code>jsStrToObject</code> in <code>utils/text.ts</code>
+    falls back to evaluating the string as a JavaScript expression, so <code>{quote: 560}</code>
+    without quoted keys would also work. Don't rely on it. Seriously. cheshire produces real JSON,
+    and real JSON never goes anywhere near the evaluator.</p></div>
 
   <h2>Running a script</h2>
 
-  <p>There is no third event type for JavaScript. The ADR defines "execute script" as a
-    patch-elements event that appends a <code>&lt;script&gt;</code> to <code>body</code>:</p>
+  <p>You might expect a third event type for JavaScript. There isn't one, and I think that's
+    rather elegant. The ADR defines "execute script" as a patch-elements event that appends a
+    <code>&lt;script&gt;</code> to <code>body</code>:</p>
 
 <pre><code class="language-clojure">(defn execute-script
   "Run JavaScript in the browser: append a &lt;script&gt; to body. With auto-remove (the default)
@@ -218,20 +235,23 @@ data: signals {"quote":560,"error":null}
     (patch-elements (str "&lt;script" (string/join attrs) "&gt;" js "&lt;/script&gt;")
                     (assoc opts :selector "body" :mode :append))))</code></pre>
 
-  <p>Two details make that work. Scripts inserted with <code>innerHTML</code>-style parsing don't
-    run, so <code>patchElements.ts</code> replaces each new <code>&lt;script&gt;</code> with a
-    freshly created one, which does. And <code>data-effect="el.remove()"</code> is an ordinary
-    Datastar attribute: an effect runs when the element is processed and again whenever a signal
-    it read changes. <code>el.remove()</code> reads no signals, so it runs exactly once and deletes
-    the tag, so a page that runs a thousand scripts doesn't accumulate a thousand tags. Use this
-    sparingly. Brew Board uses it once, in part 7, to talk to the native shell.</p>
+  <p>Two details make that work, and both are sneaky. First, scripts inserted with
+    <code>innerHTML</code>-style parsing don't run (the browser is protecting you from yourself), so
+    <code>patchElements.ts</code> replaces each new <code>&lt;script&gt;</code> with a freshly
+    created one, which does. Second, <code>data-effect="el.remove()"</code> is an ordinary Datastar
+    attribute: an effect runs when the element is processed and again whenever a signal it read
+    changes. <code>el.remove()</code> reads no signals, so it runs exactly once and deletes the
+    tag. The script cleans up after itself, like a polite houseguest, so a page that runs a
+    thousand scripts doesn't pile up a thousand tags. Use this sparingly, though. Brew Board uses it
+    exactly once, in part 7, to talk to the native shell.</p>
 
-  <h2>Holding the stream open</h2>
+  <h2>Holding the stream open (or: the response that wouldn't end)</h2>
 
-  <p>Every response so far has ended after its events. Nothing in the format requires that. A
-    stream can stay open and deliver events whenever the server has something to say. That needs
-    an asynchronous response, because a Ring handler that returns a map returns once. http-kit's
-    <code>as-channel</code> gives the handler a channel to keep:</p>
+  <p>Every response so far has ended after its events. But here's the thing: nothing in the format
+    requires that. A stream can just… stay open, and deliver events whenever the server has
+    something to say. That needs an asynchronous response, because a Ring handler that returns a
+    map returns once and then it's done. http-kit's <code>as-channel</code> hands the handler a
+    channel it can hang onto:</p>
 
 <pre><code class="language-clojure">(defn clock-handler
   "Hold the response open. Send one patch per tick, at most `ticks` times, then close.
@@ -251,49 +271,52 @@ data: signals {"quote":560,"error":null}
     :on-close (fn [_ status] (swap! closes conj status))}))</code></pre>
 
   <p>The first <code>send!</code> carries the status and headers. Each later one carries a
-    complete event as one string, with <code>close?</code> false. Sending a whole event per call
-    matters. The ADR asks implementations to "ensure ordered delivery", because two threads
-    writing half-events to one connection would interleave into garbage. One string per event
-    is the simplest way to get that. The SDK's http-kit adapter takes a lock instead, because it
-    can also write through a compressing output stream.</p>
+    complete event as one string, with <code>close?</code> false. That "whole event per call" bit
+    matters more than it looks. The ADR asks implementations to "ensure ordered delivery", because
+    two threads writing half-events to one connection would interleave into word salad. One string
+    per event is the simplest possible way to get that guarantee. The SDK's http-kit adapter takes
+    a lock instead, because it can also write through a compressing output stream.</p>
 
-  <p>On the page, a held-open stream is just a GET that takes a long time to finish. The
-    lesson starts it from a button, <code>@get('/clock')</code>. A page that should be live from
-    the start uses <code>&lt;div data-init="@get('/clock')"&gt;</code> instead: <code>data-init</code>
-    runs its expression once, when Datastar processes the element. Each event updates
-    <code>#clock</code>. When the browser goes away, the connection closes and http-kit calls
-    <code>:on-close</code>, which is where part 6 unsubscribes the connection from the broadcast
-    hub. The lesson's demo checks this: it reads three ticks, drops the connection, and waits to
-    see <code>on-close</code> fire.</p>
+  <p>From the page's point of view, a held-open stream is just a GET that takes a really long time
+    to finish. That's all. The lesson starts it from a button, <code>@get('/clock')</code>. A page
+    that should be live from the start uses <code>&lt;div data-init="@get('/clock')"&gt;</code>
+    instead: <code>data-init</code> runs its expression once, when Datastar processes the element.
+    Each event updates <code>#clock</code>. When the browser goes away, the connection closes and
+    http-kit calls <code>:on-close</code>, which is where part 6 unsubscribes the connection from
+    the broadcast hub. The lesson's demo checks this rather than taking it on faith: it reads three
+    ticks, drops the connection, and waits to see <code>on-close</code> fire.</p>
 
-  <p>The <code>clock-handler</code> above is a toy. It's one thread per connection, and it sends
-    whether or not anything changed. Part 6 replaces the timer with "send when the state changes"
-    and replaces the thread with a watch on an atom. The format doesn't change. The stream is the
-    same text, only spread out in time.</p>
+  <p>Now, let's be honest: the <code>clock-handler</code> above is a toy. It's one thread per
+    connection, and it sends whether or not anything changed, like a coworker who gives you hourly
+    updates on a project nobody's touched. Part 6 replaces the timer with "send when the state
+    changes" and replaces the thread with a watch on an atom. The format doesn't change one bit.
+    The stream is the same text, only spread out in time.</p>
 
-  <div class="code-ref"><p><code>clojure/src/lesson02/event_stream.clj</code> (ns
+  <div class="code-ref"><p>The code is in <code>clojure/src/lesson02/event_stream.clj</code> (ns
     <code>lesson02.event-stream</code>): <code>send-event</code>, <code>patch-elements</code>,
     <code>remove-elements</code>, <code>patch-signals</code>, <code>execute-script</code>,
     <code>sse-response</code>, and the <code>/clock</code> stream. The tests replay every case in
     Datastar's <code>sdk/test/get-cases</code> (copied to <code>clojure/test/lesson02/cases/</code>)
     and compare with the same per-key normalization as <code>compare-sse.sh</code>. The page's
     first button gets one response with four events (append to <code>#feed</code>, patch
-    <code>#status</code> by id, set a signal, run a script). The demo prints one event of each kind,
-    then opens <code>/clock</code> and prints three ticks with their arrival times:
+    <code>#status</code> by id, set a signal, run a script), which is a nice little tour of the
+    whole format in one click. The demo prints one event of each kind, then opens
+    <code>/clock</code> and prints three ticks with their arrival times:
     <code>cd clojure &amp;&amp; clojure -M -m lesson02.event-stream</code>.</p></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>send-event</code>,
-    <code>patch-elements</code>, <code>patch-signals</code>, and <code>execute-script</code>. The
-    golden cases are the tests, so when they pass, your writer produces the same bytes as
-    Datastar's official SDKs. Hints are on the <a href="../exercises.html">exercises page</a>.</p>
+  <div class="build-it"><p>Your turn again. The exercise track for this part is
+    <code>send-event</code>, <code>patch-elements</code>, <code>patch-signals</code>, and
+    <code>execute-script</code>. The golden cases <em>are</em> the tests, so when they pass, your
+    writer produces the same bytes as Datastar's official SDKs. Not similar bytes. The same ones.
+    Hints are on the <a href="../exercises.html">exercises page</a>.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson02.event-stream-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>Datastar's server protocol is two SSE event types.
-    <code>datastar-patch-elements</code> carries <code>selector</code>, <code>mode</code>, and
+  <div class="takeaway"><p>So, the napkin version. Datastar's server protocol is two SSE event
+    types. <code>datastar-patch-elements</code> carries <code>selector</code>, <code>mode</code>, and
     <code>elements</code> lines; only <code>outer</code> and <code>replace</code> can work without a
     selector, and only <code>outer</code>/<code>inner</code> morph.
     <code>datastar-patch-signals</code> carries a JSON merge patch, where <code>null</code> deletes.
-    Data lines are grouped by key, so their order across keys doesn't matter. Hold the response
-    open and the same events become a live feed.</p></div>
+    Data lines are grouped by key, so their order across keys doesn't matter. And if you hold the
+    response open, the very same events become a live feed. Same text, more patience.</p></div>

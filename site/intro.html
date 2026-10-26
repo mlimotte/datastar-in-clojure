@@ -1,17 +1,19 @@
-  <p>Datastar is a hypermedia framework: one script tag, a set of <code>data-*</code> attributes,
-    and a server that answers requests with HTML and signal patches over Server-Sent Events. This
-    series teaches it from Clojure, with no SDK. You write the wire format yourself in part 2 (it's
-    a handful of small functions), so nothing the browser does is a mystery.</p>
+  <p>Datastar is a hypermedia framework, and the whole pitch fits on an index card: one script tag,
+    a set of <code>data-*</code> attributes, and a server that answers requests with HTML and signal
+    patches over Server-Sent Events. That's it. That's the framework. This series teaches it from
+    Clojure, with no SDK. You write the wire format yourself in part 2 (it's a handful of small
+    functions, so don't get nervous), and once you have, nothing the browser does is a mystery.</p>
 
   <p>Everything builds toward one small app, <strong>Brew Board</strong>: a coffee counter where
-    customers configure drinks and place orders, and a barista moves them along a live board. On
-    the way you decide what belongs in a signal and what doesn't, shape the backend's routes
-    around commands and one long-lived stream, and finally serve the same routes to a thin native
-    shell that takes the place of a React Native app.</p>
+    customers configure drinks and place orders, and a barista moves them along a live board. Along
+    the way you'll decide what belongs in a signal and what doesn't (spoiler: less than you'd think),
+    shape the backend's routes around commands and one long-lived stream, and finally serve the very
+    same routes to a thin native shell that takes the place of a React Native app. Yes, really.</p>
 
-  <p>It's a toy in the useful sense. State is an atom, there is no auth and no database, and
-    nothing is tuned. Each part has a standalone lesson in <code>clojure/</code> with a narrated
-    demo, an exercise track with failing tests, interactive figures to step through, and recall
-    cards. Where a usage decision depends on how Datastar works inside (how it reads the stream,
-    how signals track dependencies, how the morph matches elements), the post explains that piece
+  <p>It's a toy, but a toy in the useful sense, the way a model railway is useful if you want to
+    understand switching. State is an atom, there is no auth and no database, and nothing is tuned.
+    Each part has a standalone lesson in <code>clojure/</code> with a narrated demo, an exercise track
+    with failing tests, interactive figures to step through, and recall cards. And wherever a usage
+    decision depends on how Datastar works inside (how it reads the stream, how signals track
+    dependencies, how the morph matches elements), the post opens the hood and explains that piece
     from the source.</p>

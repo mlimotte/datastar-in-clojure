@@ -90,7 +90,7 @@
       for (const [d, t, n] of domLines(sandbox)) dom.append(el("div", { class: n ? "new" : "kept", text: "  ".repeat(d) + t }));
       if (r.warn) dom.append(el("div", { class: "err", text: "⚠ " + r.warn }));
     }
-    A.foot.textContent = r.err ? "No selector, and the mode is not outer or replace: there is nothing to find the target with." : (r.note || "") + (r.warn ? "" : ". New elements are highlighted.");
+    A.foot.textContent = r.err ? "No selector, and the mode is not outer or replace. So there's nothing to find the target with, and Datastar refuses to guess." : (r.note || "") + (r.warn ? "" : ". New elements are highlighted.");
   }
   function load(p) { modeSel.value = p.mode; selIn.value = p.selector; htmlIn.value = p.html; vt.checked = false; idIn.value = ""; retryIn.value = ""; render(); }
   [modeSel, selIn, vt, idIn, retryIn, htmlIn].forEach((x) => x.addEventListener("input", render));
@@ -99,10 +99,10 @@
   load(PRESETS[0]);
 
   const pr = predict(pm, {
-    prompt: "An event has <code>data: mode inner</code> and <code>data: elements &lt;div id=\"cart\"&gt;…&lt;/div&gt;</code>, and no selector. The page has a <code>#cart</code>. What happens?",
+    prompt: "Here's a sneaky one. An event has <code>data: mode inner</code> and <code>data: elements &lt;div id=\"cart\"&gt;…&lt;/div&gt;</code>, and no selector. The page has a <code>#cart</code>, so surely it's fine? What happens?",
     choices: ["<code>#cart</code>'s children are replaced", "<code>#cart</code> is replaced, as with outer", "Datastar throws <code>PatchElementsExpectedSelector</code>; nothing changes", "The div is appended to <code>&lt;body&gt;</code>"],
     answer: 2,
-    explain: "Only <code>outer</code> and <code>replace</code> look targets up by the payload's ids. Every other mode needs a selector, and <code>patchElements.ts</code> throws before touching the DOM. The figure below is now showing that case.",
+    explain: "Only <code>outer</code> and <code>replace</code> look targets up by the payload's ids. Every other mode needs a selector, period, and <code>patchElements.ts</code> throws before it touches the DOM. Having an id that matches doesn't save you. The figure below is now showing that case.",
     onLock() { presets.querySelectorAll("button")[4].click(); pr.reveal(); },
   });
 
@@ -114,7 +114,7 @@
     let buf = "", msg = { event: "", data: "" }, page = { cart: "Cart: empty", quote: "—" };
     const dispatched = [];
     let prev = 0;
-    fr.push({ ci: -1, buf: "", msg: { ...msg }, disp: [], page: { ...page }, note: "Nothing has arrived. The response headers said text/event-stream, so Datastar starts reading the body." });
+    fr.push({ ci: -1, buf: "", msg: { ...msg }, disp: [], page: { ...page }, note: "Nothing has arrived yet. The response headers said text/event-stream, so Datastar settles in and starts reading the body, one chunk at a time." });
     CUTS.forEach((cut, ci) => {
       buf += STREAM.slice(prev, cut); prev = cut;
       const lines = [];
@@ -138,7 +138,7 @@
           if (field === "data") msg.data = msg.data ? msg.data + "\n" + value : value;
         }
       }
-      if (!notes.length) notes.push(lines.length ? `${lines.length} complete line${lines.length > 1 ? "s" : ""} parsed into the current message; no blank line yet` : "no complete line yet: the bytes wait in the buffer");
+      if (!notes.length) notes.push(lines.length ? `${lines.length} complete line${lines.length > 1 ? "s" : ""} parsed into the current message; no blank line yet` : "no complete line yet: the bytes sit in the buffer and wait patiently");
       fr.push({ ci, buf, msg: { ...msg }, disp: dispatched.slice(), page: { ...page }, note: `Chunk ${ci + 1} (${cut - (CUTS[ci - 1] || 0)} bytes): ` + notes.join("; ") + "." });
     });
     return fr;

@@ -14,23 +14,23 @@
     const F = [];
     let stack = [];
     const snap = (dir, wire, note, toast) => F.push({ stack: stack.map((s) => ({ ...s })), dir, wire, note, toast });
-    snap(null, "", "The app launches. The shell has no Brew Board screens of its own.");
-    snap("http", "GET /native/path-config\n← {\"rules\": [{\"patterns\": [\"^/$\"], \"presentation\": \"root\"},\n    {\"patterns\": [\"^/orders/\\\\d+$\"], \"presentation\": \"push\"}]}", "First it downloads the navigation rules. A server deploy can change them.");
+    snap(null, "", "The app launches. The shell has no Brew Board screens of its own. Not one. It's an empty stage.");
+    snap("http", "GET /native/path-config\n← {\"rules\": [{\"patterns\": [\"^/$\"], \"presentation\": \"root\"},\n    {\"patterns\": [\"^/orders/\\\\d+$\"], \"presentation\": \"push\"}]}", "First it downloads the navigation rules. A server deploy can change them, and App Review never hears about it.");
     stack = [{ title: "Brew Board", url: "/" }];
-    snap("http", "GET /   User-Agent: … BrewShell/1\n← 200 text/html (no web header: shell-request? is true)\nGET /customer/stream   (data-init)\n← 200 text/event-stream, held open: whole #app", "Path / matches ^/$ → root. The page opens its live stream exactly as in a browser.");
-    snap("in", "shell → page:\nwindow.dispatchEvent(new CustomEvent('brew:native',\n  {detail: {type: 'push-token', token: 'a1b2…'}}))\npage: evt.detail.type === 'push-token' && ($pushToken = …,\n  @post('/native/device', {filterSignals: {include: /^pushToken$/}}))\n← 204   state: :devices {ada \"a1b2…\"}", "Native → web: the token becomes a signal and goes to the server like any other input.");
-    snap("http", "@post('/cart/items')  → 204\n@post('/orders')      → 204\nstream ← whole #app: order #1 (placed)", "Ada orders. Commands answer 204; the stream sends her view (part 6).");
+    snap("http", "GET /   User-Agent: … BrewShell/1\n← 200 text/html (no web header: shell-request? is true)\nGET /customer/stream   (data-init)\n← 200 text/event-stream, held open: whole #app", "Path / matches ^/$ → root. The page opens its live stream exactly as in a browser. It has no idea it's in an app.");
+    snap("in", "shell → page:\nwindow.dispatchEvent(new CustomEvent('brew:native',\n  {detail: {type: 'push-token', token: 'a1b2…'}}))\npage: evt.detail.type === 'push-token' && ($pushToken = …,\n  @post('/native/device', {filterSignals: {include: /^pushToken$/}}))\n← 204   state: :devices {ada \"a1b2…\"}", "Native → web: the token becomes a signal and goes to the server like any other input. Nothing special about it at all.");
+    snap("http", "@post('/cart/items')  → 204\n@post('/orders')      → 204\nstream ← whole #app: order #1 (placed)", "Ada orders. Commands answer 204; the stream sends her view, same as part 6.");
     const p1 = "/orders/1";
     stack.push({ title: "Order #1", url: p1 });
-    snap("http", `tap <a href="${p1}">\nshell: decidePolicyFor → cancel in-page load\n"${p1}" matches ^/orders/\\d+$ → ${present(p1)}\nGET ${p1} in a new web view (a real route: one of Ada's orders)`, "Navigation is intercepted and presented natively: a pushed screen with a native back button.");
+    snap("http", `tap <a href="${p1}">\nshell: decidePolicyFor → cancel in-page load\n"${p1}" matches ^/orders/\\d+$ → ${present(p1)}\nGET ${p1} in a new web view (a real route: one of Ada's orders)`, "Navigation is intercepted and presented natively: a pushed screen with a real native back button, the kind thumbs expect.");
     stack.pop();
-    snap(null, "swipe from the left edge → back (native gesture)", "Going back is native; the root web view is still there, stream and all.");
-    snap("http", "Sam: @post('/orders/1/advance') ×2  → status :ready\nwatch: broadcast! → Ada's stream ← whole #app (ready)\nready-notifications(old, new)\n  → [{:sid ada :message \"Ada, your order #1 is ready.\"}]", "The pure diff finds orders that just became ready.");
-    snap("out", "stream ← datastar-patch-elements, mode append, selector body:\n<script data-effect=\"el.remove()\">\n  window.BrewShell.post({\"type\":\"notify\",\"title\":\"Brew Board\",\n    \"body\":\"Ada, your order #1 is ready.\",\"haptic\":\"success\"})\n</script>\nshell: messageHandlers.brew receives it", "Web → native: notify! sends the bridge script down Ada's open stream. The shell fires a haptic and shows a banner.", "Brew Board: Ada, your order #1 is ready.");
-    snap(null, "phone locked → page hidden → @get stream closed\nserver: on-close → unsubscribe!", "Ada pockets her phone. Her stream closes (part 6).");
-    snap("push", "Sam: order #2 → :ready\nnotify! → no open stream for ada → returned\nwatch!: (push! \"a1b2…\" \"Ada, your order #2 is ready.\")\n  (toy: printed; a real server calls APNs/FCM)", "With no open stream, the notification falls back to a push to the token registered earlier.", "Brew Board: Ada, your order #2 is ready.");
+    snap(null, "swipe from the left edge → back (native gesture)", "Going back is native, and the root web view is still sitting right there, stream and all.");
+    snap("http", "Sam: @post('/orders/1/advance') ×2  → status :ready\nwatch: broadcast! → Ada's stream ← whole #app (ready)\nready-notifications(old, new)\n  → [{:sid ada :message \"Ada, your order #1 is ready.\"}]", "The pure diff of old and new state finds the orders that just became ready.");
+    snap("out", "stream ← datastar-patch-elements, mode append, selector body:\n<script data-effect=\"el.remove()\">\n  window.BrewShell.post({\"type\":\"notify\",\"title\":\"Brew Board\",\n    \"body\":\"Ada, your order #1 is ready.\",\"haptic\":\"success\"})\n</script>\nshell: messageHandlers.brew receives it", "Web → native: notify! sends the bridge script down Ada's open stream. The shell fires a haptic and shows a banner. Bzzt.", "Brew Board: Ada, your order #1 is ready.");
+    snap(null, "phone locked → page hidden → @get stream closed\nserver: on-close → unsubscribe!", "Ada pockets her phone. Her stream closes, as part 6 warned it would.");
+    snap("push", "Sam: order #2 → :ready\nnotify! → no open stream for ada → returned\nwatch!: (push! \"a1b2…\" \"Ada, your order #2 is ready.\")\n  (toy: printed; a real server calls APNs/FCM)", "With no open stream, the notification falls back to a push to the token registered earlier. Remember that token? This is why.", "Brew Board: Ada, your order #2 is ready.");
     stack = [{ title: "Brew Board", url: "/" }];
-    snap("http", "unlock → page visible → @get('/customer/stream') reopens\n← whole #app: order #2 (ready)", "The stream reopens and the first event is the current view. Every navigation rule used in this session came from the server.");
+    snap("http", "unlock → page visible → @get('/customer/stream') reopens\n← whole #app: order #2 (ready)", "The stream reopens and the first event is the current view. And every navigation rule used in this whole session came from the server.");
     return F;
   }
 
@@ -61,23 +61,23 @@
 
   // ---------- deploy vs release ----------
   const CHANGES = [
-    { q: "A new “Order history” screen at <code>/orders/history</code>", rel: false, why: "A new route and some HTML. Unmatched paths are pushed, so the shell presents it with no change." },
+    { q: "A new “Order history” screen at <code>/orders/history</code>", rel: false, why: "A new route and some HTML. Unmatched paths are pushed, so the shell presents it without a single change." },
     { q: "Push order pages from a new <code>/orders/:id/receipt</code> link too", rel: false, why: "A new route plus one pattern in the served path-config." },
     { q: "Reword the order-status copy and restyle the cart", rel: false, why: "HTML and CSS from the server." },
-    { q: "Haptic + banner when an order is ready (the shell already handles <code>\"notify\"</code>)", rel: false, why: "A bridge message the installed shell understands: the server just starts sending it." },
+    { q: "Haptic + banner when an order is ready (the shell already handles <code>\"notify\"</code>)", rel: false, why: "A bridge message the installed shell already understands, so the server just starts sending it." },
     { q: "Hide sold-out milks entirely instead of disabling them", rel: false, why: "<code>drink-options-view</code> on the server." },
-    { q: "Scan a loyalty QR code with the camera", rel: true, why: "New native code (camera access, a new <code>\"scan-qr\"</code> message, a usage-description string). Gate it on the shell version in the User-Agent." },
-    { q: "Push notifications while the app is in the background", rel: true, why: "Registering for APNs/FCM and handling the token is native code and app configuration. Once shipped, the server decides what to send." },
-    { q: "Replace the order screen with a fully native SwiftUI view", rel: true, why: "Native UI is native code. (Hotwire Native's path config can route a path to a native screen, but the screen itself ships in the binary.)" },
+    { q: "Scan a loyalty QR code with the camera", rel: true, why: "New native code (camera access, a new <code>\"scan-qr\"</code> message, a usage-description string). Gate it on the shell version in the User-Agent. (Told you that version number would matter.)" },
+    { q: "Push notifications while the app is in the background", rel: true, why: "Registering for APNs/FCM and handling the token is native code and app configuration. Once that ships, though, the server decides what to send." },
+    { q: "Replace the order screen with a fully native SwiftUI view", rel: true, why: "Native UI is native code. No way around it. (Hotwire Native's path config can route a path to a native screen, but the screen itself ships in the binary.)" },
     { q: "A new app icon", rel: true, why: "The icon is in the app bundle." },
   ];
   const releases = CHANGES.filter((c) => c.rel).length;
 
   const p = predict("#predict-release", {
-    prompt: `Here are ${CHANGES.length} changes to Brew Board's phone app (listed in the figure below). How many need a new app-store release?`,
+    prompt: `Here are ${CHANGES.length} changes to Brew Board's phone app (listed in the figure below). How many of them need a new app-store release? Guess before you sort.`,
     number: { min: 0, max: CHANGES.length, step: 1, value: CHANGES.length },
     answer: releases, tolerance: 0,
-    explain: "Only the ones that need new native code. Everything that is HTML, routes, path rules, or a bridge message the shell already knows ships with a server deploy. Sort them below.",
+    explain: "Only the ones that need new native code. Everything that is HTML, routes, path rules, or a bridge message the shell already knows ships with a server deploy. No App Review, no waiting. Sort them below.",
   });
 
   const v2 = frame("#viz-sorter", "Deploy or release?", "click your answer for each change");

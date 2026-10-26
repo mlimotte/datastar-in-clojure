@@ -112,20 +112,20 @@
     detail.append(el("div", { class: "rt-label", text: "Response" }), el("pre", { class: "rt-wire", text: r.resp }));
 
     v.foot.textContent = {
-      page: "A page GET: no Datastar header, no signals. It returns the whole document and sets the sid cookie.",
-      query: "A query: GET, unguarded, changes nothing. Signals ride in ?datastar=; the handler reads three of the six that arrived.",
-      command: "A command: guarded, turned into a command map, applied with swap!, answered with the patches it caused (this part's style).",
-      forged: "A cross-site form can POST, but it cannot add Datastar-Request. A cross-site fetch that adds it triggers a CORS preflight the server never approves.",
+      page: "A page GET: no Datastar header, no signals, nothing fancy. It returns the whole document and sets the sid cookie, like it's 2005.",
+      query: "A query: GET, unguarded, changes nothing. Signals ride along in ?datastar=, and the handler reads three of the six that arrived. The other three just came for the scenery.",
+      command: "A command: guarded, turned into a command map, applied with swap!, and answered with the patches it caused (this part's style; hold that thought for part 6).",
+      forged: "A cross-site form can POST all it likes, but it cannot add Datastar-Request. And a cross-site fetch that adds it triggers a CORS preflight the server never approves. Nice try.",
     }[r.kind];
   }
   show(2);
 
   // ---------- predict: which signals arrive? ----------
   const p1 = predict("#predict-signals", {
-    prompt: "Ada's page has signals <code>drink size milk qty customer _open _loading</code>. Her Order button runs <code>@post('/orders')</code>. Which arrive in the request body?",
+    prompt: "Ada's page has signals <code>drink size milk qty customer _open _loading</code>. Her Order button runs <code>@post('/orders')</code>. Which ones actually make it into the request body?",
     choices: ["Only <code>customer</code>", "<code>drink size milk qty customer</code>", "All seven"],
     answer: 1,
-    explain: "Datastar sends every signal except those with a <code>_</code>-prefixed path segment (default <code>exclude = /(^|\\.)_/</code> in fetch.ts). It does not know which ones the server needs; the handler picks.",
+    explain: "Datastar sends every signal except those with a <code>_</code>-prefixed path segment (default <code>exclude = /(^|\\.)_/</code> in fetch.ts). It has no idea which ones the server needs, and it doesn't try to guess; the handler picks.",
   });
 
   // ---------- sequence: fragment-per-action vs command + stream ----------
@@ -135,19 +135,19 @@
     const sam0 = ["board: (no orders)"];
     const push = (active, ada, srv, sam, msg) => F.push({ active, ada, srv, sam, msg });
     if (mode === 0) {
-      push(null, ada0, ["orders: {}", "next-id 1"], sam0, "Both pages are open. Ada has a latte in her cart. Sam is watching /board.");
+      push(null, ada0, ["orders: {}", "next-id 1"], sam0, "Both pages are open. Ada has a latte in her cart (the medium oat, naturally). Sam is watching /board.");
       push("ada", ada0, ["orders: {}"], sam0, "Ada clicks Order → @post('/orders') with Datastar-Request, the sid cookie and all non-_ signals.");
       push("srv", ada0, ["swap! handle-command :place-order", "<new>orders: {1 Ada placed}</new>"], sam0, "The server applies the command. State now holds order #1.");
       push("srv", ada0, ["command-response → 3 events", "#cart, #my-orders, signals"], sam0, "command-response picks the patches this command affects on the customer page.");
-      push("ada", ["<new>cart: empty</new>", "<new>my orders: #1 placed</new>"], ["orders: {1 Ada placed}"], sam0, "200 text/event-stream. Ada's page morphs #cart and #my-orders. Correct, for Ada.");
-      push("sam", ["cart: empty", "my orders: #1 placed"], ["orders: {1 Ada placed}"], ["<stale>board: (no orders)</stale>"], "Sam's board never heard about it. No request came from Sam's browser, so no response went there. Stale until Sam reloads.");
+      push("ada", ["<new>cart: empty</new>", "<new>my orders: #1 placed</new>"], ["orders: {1 Ada placed}"], sam0, "200 text/event-stream. Ada's page morphs #cart and #my-orders. Correct, for Ada, anyway.");
+      push("sam", ["cart: empty", "my orders: #1 placed"], ["orders: {1 Ada placed}"], ["<stale>board: (no orders)</stale>"], "Sam's board never heard about it. No request came from Sam's browser, so no response went there. It stays stale until Sam reloads, and Sam has no idea.");
     } else {
       push(null, ada0, ["orders: {}", "subscribers: Ada, Sam"], sam0, "Both pages opened a long-lived GET on load (data-init=\"@get('/customer/stream')\" and '/board/stream'). The server holds both connections.");
       push("ada", ada0, ["orders: {}"], sam0, "Ada clicks Order → @post('/orders'). Same request as before.");
-      push("srv", ada0, ["swap! handle-command :place-order", "<new>orders: {1 Ada placed}</new>"], sam0, "Same pure command. The handler answers 204 No Content: it renders nothing.");
+      push("srv", ada0, ["swap! handle-command :place-order", "<new>orders: {1 Ada placed}</new>"], sam0, "Same pure command. But now the handler answers 204 No Content: it renders nothing at all. Wait for it.");
       push("srv", ada0, ["add-watch fires", "render view-for Ada, view-for Sam"], sam0, "The atom's watch renders each subscriber's whole view from the new state.");
       push("ada", ["<new>cart: empty</new>", "<new>my orders: #1 placed</new>"], ["orders: {1 Ada placed}"], sam0, "Ada's stream gets her whole #app; the morph changes only what differs.");
-      push("sam", ["cart: empty", "my orders: #1 placed"], ["orders: {1 Ada placed}"], ["<new>board: #1 Ada placed</new>"], "Sam's stream gets the board's whole #app. Sam sees the order without asking. No command knows any view exists.");
+      push("sam", ["cart: empty", "my orders: #1 placed"], ["orders: {1 Ada placed}"], ["<new>board: #1 Ada placed</new>"], "Sam's stream gets the board's whole #app, and Sam sees the order without asking. And here's the beautiful part: no command knows any view exists.");
     }
     return F;
   }
@@ -175,13 +175,13 @@
     msg.textContent = f.msg;
   });
   v2.controls.append(seg(["Fragment per action (part 5)", "Command + stream (part 6)"], 0, (i) => s.setFrames(framesFor(i))));
-  v2.foot.textContent = "Teal: changed on this step. Red: wrong and nobody will fix it.";
+  v2.foot.textContent = "Teal: changed on this step. Red: wrong, and nobody is coming to fix it.";
 
   const p2 = predict("#predict-board", {
     prompt: "Fragment-per-action style. Ada places order #1 while Sam has <code>/board</code> open in another browser. What does Sam's board show?",
     choices: ["Order #1, within a second", "Nothing new until Sam does something that reloads the board", "An error"],
     answer: 1,
     onLock() { s.setFrames(framesFor(0)); let k = 0; const t = setInterval(() => { s.go(++k); if (k >= 5) { clearInterval(t); p2.reveal(); } }, 450); },
-    explain: "A response goes only to the browser that sent the request. Sam's browser sent nothing, so it got nothing. Step through the figure below, then switch it to the part 6 mode.",
+    explain: "A response goes only to the browser that sent the request. Sam's browser sent nothing, so it got nothing. That's not a bug in your code; it's how HTTP works. Step through the figure below, then flip it to the part 6 mode and watch the problem evaporate.",
   });
 })();

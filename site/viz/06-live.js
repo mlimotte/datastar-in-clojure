@@ -49,9 +49,9 @@
     const last = Object.fromEntries(SUBS.map((s) => [s.key, s.view(st)]));
     const F = [];
     const base = { active: null, status: {} };
-    F.push({ ...base, top: "Four streams are open: Ada has two tabs (one sid cookie, two tab ids). Each subscriber’s :last is the HTML it was last sent.", note: "Pick a command, then step." });
+    F.push({ ...base, top: "Four streams are open: Ada has two tabs (one sid cookie, two tab ids). Each subscriber’s :last is the HTML it was last sent.", note: "Pick a command, then step. Go on, pick one." });
     COMMANDS[ci].apply(st);
-    F.push({ ...base, top: `POST → (swap! state handle-command ${COMMANDS[ci].cmd})\n→ 204 No Content\n→ add-watch fires broadcast!`, note: "The command handler is done. Everything below happens in the watch." });
+    F.push({ ...base, top: `POST → (swap! state handle-command ${COMMANDS[ci].cmd})\n→ 204 No Content\n→ add-watch fires broadcast!`, note: "The command handler is done. Finished. Clocked out. Everything below happens in the watch." });
     const status = {};
     let sent = 0, bytes = 0;
     for (const s of SUBS) {
@@ -60,9 +60,9 @@
       status[s.key] = same ? { cls: "skipped", text: "same html → skip" } : { cls: "sent", text: `changed → send ${evBytes(html).toLocaleString("en-US")} B` };
       if (!same) { sent++; bytes += evBytes(html); }
       F.push({ active: s.key, status: { ...status }, top: `(view-for ${s.who} state) → ${html.length.toLocaleString("en-US")} chars\n(= html :last) → ${same}`,
-        note: same ? `${s.title}'s view renders byte-for-byte the same, so nothing is sent.` : `${s.title}'s view changed: one patch-elements event with the whole #app goes down that stream.` });
+        note: same ? `${s.title}'s view renders byte-for-byte the same, so nothing is sent. Not a byte.` : `${s.title}'s view changed: one patch-elements event with the whole #app goes down that stream.` });
     }
-    F.push({ active: null, status: { ...status }, top: `Sent ${sent} of ${SUBS.length} streams, ${bytes.toLocaleString("en-US")} bytes uncompressed.`, note: "No command named a view. Each subscriber's own render decided whether it was affected." });
+    F.push({ active: null, status: { ...status }, top: `Sent ${sent} of ${SUBS.length} streams, ${bytes.toLocaleString("en-US")} bytes uncompressed.`, note: "Notice that no command named a view. Each subscriber's own render decided whether it was affected, which is exactly the point." });
     return F;
   }
 
@@ -92,26 +92,26 @@
 
   // ---------- predict: selected after the option list changes ----------
   predict("#predict-selected", {
-    prompt: "Suppose the server rendered <b>no</b> <code>selected</code> attributes. Ada has Latte, <b>Medium</b> (Latte sizes: Small, Medium, Large). She switches the drink to Chai Latte (sizes: Medium, Large). Medium is still valid, so no signal patch is sent; her stream re-renders <code>#drink-options</code>. What does the size drop-down show?",
+    prompt: "Suppose the server rendered <b>no</b> <code>selected</code> attributes. Ada has Latte, <b>Medium</b> (Latte sizes: Small, Medium, Large). She switches the drink to Chai Latte (sizes: Medium, Large). Medium is still valid, so no signal patch is sent; her stream re-renders <code>#drink-options</code>. So what does the size drop-down show? (This one's sneaky.)",
     choices: ["Medium", "Large", "Small", "Nothing selected"],
     answer: 1,
-    explain: "The options have no ids, so the morph pairs them by position. Position 2 (Medium, selected) is rewritten into Large and keeps its selected property; position 1 becomes Medium, unselected. No option's <code>selected</code> attribute changed presence, so the morph flipped no property and fired no <code>datastar-prop-change</code>: <code>data-bind</code> doesn't re-sync, and <code>$size</code> stays <code>medium</code>. Rendering <code>selected</code> from the stored draft fixes it.",
+    explain: "The options have no ids, so the morph pairs them by position. Position 2 (Medium, selected) is rewritten into Large and keeps its selected property; position 1 becomes Medium, unselected. No option's <code>selected</code> attribute changed presence, so the morph flipped no property and fired no <code>datastar-prop-change</code>: <code>data-bind</code> doesn't re-sync, and <code>$size</code> stays <code>medium</code>. The page now quietly disagrees with itself. Rendering <code>selected</code> from the stored draft fixes it.",
   });
 
   // ---------- predict: two tabs, one cookie ----------
   predict("#predict-tabs", {
-    prompt: "Suppose the draft were stored per <b>sid cookie</b>: <code>:drafts {sid {:drink :size :milk}}</code>. Ada has Brew Board open in two tabs, both on Latte, Small. In tab A she switches to Chai Latte (sizes: Medium, Large); the server fits her draft to Chai, Medium and re-renders every stream of her sid. What happens in tab B?",
+    prompt: "Suppose the draft were stored per <b>sid cookie</b>: <code>:drafts {sid {:drink :size :milk}}</code>. Ada has Brew Board open in two tabs, both on Latte, Small. In tab A she switches to Chai Latte (sizes: Medium, Large); the server fits her draft to Chai, Medium and re-renders every stream of her sid. What happens over in tab B?",
     choices: ["Nothing: tab B still shows Latte, Small", "Tab B shows Chai, Medium and $size is medium", "Tab B shows Chai, Medium but its $size is still small", "Tab B reloads"],
     answer: 2,
-    explain: "Both tabs send the same cookie, so both streams render the one stored draft. Tab B's <code>#drink</code> option flips its <code>selected</code> attribute, the morph sets the property and fires <code>datastar-prop-change</code>, and <code>data-bind</code> copies <code>chai</code> into B's <code>$drink</code>. But B's first size option keeps its <code>selected</code> attribute (Small selected became Medium selected), so no property flips and <code>$size</code> stays <code>small</code>. B shows Chai, Medium; its next Add to cart sends size small and fails. We reproduced exactly this in Chrome. Keying the draft by a tab id fixes it.",
+    explain: "Both tabs send the same cookie, so both streams render the one stored draft. Tab B's <code>#drink</code> option flips its <code>selected</code> attribute, the morph sets the property and fires <code>datastar-prop-change</code>, and <code>data-bind</code> copies <code>chai</code> into B's <code>$drink</code>. But B's first size option keeps its <code>selected</code> attribute (Small selected became Medium selected), so no property flips and <code>$size</code> stays <code>small</code>. B shows Chai, Medium; its next Add to cart sends size small and fails, and good luck explaining that to Ada. We reproduced exactly this in Chrome. Keying the draft by a tab id fixes it.",
   });
 
   // ---------- predict: focus ----------
   const pf = predict("#predict-focus", {
-    prompt: "Ada has typed <code>Ad</code> into <code>&lt;input id=\"customer\" data-bind:customer&gt;</code> and the cursor is in the box. Sam advances an order and Ada's stream delivers her whole <code>#app</code> (default mode, outer). What happens to the box?",
+    prompt: "Ada has typed <code>Ad</code> into <code>&lt;input id=\"customer\" data-bind:customer&gt;</code> and the cursor is in the box. Sam advances an order and Ada's stream delivers her whole <code>#app</code> (default mode, outer). What happens to the box she's typing in?",
     choices: ["It keeps “Ad” and keeps focus", "It keeps “Ad” but loses focus", "It is emptied and loses focus"],
     answer: 0,
-    explain: "The morph changes the existing input in place: same DOM node, so focus stays; and it only sets <code>value</code> when the <code>value</code> attribute differs between old and new (here both have none). Step through the figure below; then switch it to <code>replace</code> to get the third answer.",
+    explain: "The morph changes the existing input in place: same DOM node, so focus stays; and it only sets <code>value</code> when the <code>value</code> attribute differs between old and new (here both have none). Step through the figure below, then switch it to <code>replace</code> to get the third answer, the one you really don't want.",
   });
 
   // ---------- morph walk ----------
@@ -151,18 +151,18 @@
     { i: null, m: {}, msg: "Old DOM on the left (input focused, “Ad” typed). New HTML from the stream on the right. Persistent ids: every id appears in both, same tag." },
     { i: 0, m: { 0: "cur" }, msg: "main#app: same id, same tag → morph in place. Attributes equal. Not isEqualNode (something inside differs) → walk children." },
     { i: 1, m: { 0: "kept", 1: "cur" }, msg: "section#draft: hard match by id set → same node. Its subtree differs (the oat option) → walk children." },
-    { i: 2, m: { 0: "kept", 1: "kept", 2: "skip" }, msg: "select#drink: isEqualNode → whole subtree skipped. Nothing touched." },
+    { i: 2, m: { 0: "kept", 1: "kept", 2: "skip" }, msg: "select#drink: isEqualNode → whole subtree skipped. Nothing touched. The cheapest kind of work: none." },
     { i: 3, m: { 0: "kept", 1: "kept", 2: "skip", 3: "cur" }, msg: "div#drink-options differs below → walk. select#size equal → skipped." },
     { i: 7, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg" }, msg: "select#milk → option oat: soft match (same tag, no id). setAttribute('disabled'), text node “Oat” → “Oat (sold out)”. Same node." },
     { i: 9, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg", 8: "skip", 9: "cur" }, msg: "input#customer: input rule. value attribute old = null, new = null → leave .value alone. “Ad” and the focus stay." },
     { i: 10, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg", 8: "skip", 9: "kept", 10: "skip" }, msg: "section#cart: isEqualNode → skipped." },
     { i: 12, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg", 8: "skip", 9: "kept", 10: "skip", 11: "kept", 12: "chg" }, msg: "ul#my-orders → li#order-1: same node; its text node “placed” → “making”." },
-    { i: null, final: true, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg", 8: "skip", 9: "kept", 10: "skip", 11: "kept", 12: "chg" }, msg: "Done. 0 nodes created, 0 removed, 1 attribute set, 2 text nodes changed. Focus and “Ad” intact." },
+    { i: null, final: true, m: { 0: "kept", 1: "kept", 2: "skip", 3: "kept", 4: "skip", 5: "kept", 6: "skip", 7: "chg", 8: "skip", 9: "kept", 10: "skip", 11: "kept", 12: "chg" }, msg: "Done. 0 nodes created, 0 removed, 1 attribute set, 2 text nodes changed. Focus and “Ad” intact. Ada never noticed a thing." },
   ];
   const REPLACE = [
     { i: null, m: {}, msg: "Same old DOM and new HTML, but the event says mode replace." },
     { i: 0, m: Object.fromEntries(OLD.map((_, k) => [k, "gone"])), msg: "replace → old main#app.replaceWith(new copy). Every old node leaves the document, including the focused input." },
-    { i: null, final: true, replaced: true, m: Object.fromEntries(OLD.map((_, k) => [k, "gone"])), msg: "Correct HTML, but 13 new nodes. The input is new and empty; document.activeElement is <body>. Ada's “Ad” is gone." },
+    { i: null, final: true, replaced: true, m: Object.fromEntries(OLD.map((_, k) => [k, "gone"])), msg: "Correct HTML, but 13 new nodes. The input is new and empty; document.activeElement is <body>. Ada's “Ad” is gone. She will notice." },
   ];
 
   const v2 = frame("#viz-morph", "Morphing #app", "the old DOM is changed in place to match the new HTML");
@@ -191,9 +191,9 @@
 
   // ---------- predict: reconnect ----------
   const pr = predict("#predict-reconnect", {
-    prompt: "Ada's phone locks for 5 minutes. Meanwhile Sam advances her order to <code>ready</code>. Brew Board sends no event ids and keeps no replay buffer. What does Ada see when she unlocks?",
+    prompt: "Ada's phone locks for 5 minutes. Meanwhile Sam advances her order to <code>ready</code>. Brew Board sends no event ids and keeps no replay buffer. What does Ada see when she unlocks? No peeking.",
     choices: ["Still “placed” until she reloads", "“ready”, within about a second", "“ready” only after 10 retries"],
     answer: 1,
-    explain: "A hidden tab closes its <code>@get</code> stream (openWhenHidden is false for GET); becoming visible opens a new one. Our <code>on-open</code> sends the whole current view, so the first event is already the truth. The new stream's GET also carries her tab's signals as they are now, so the server re-adopts her draft before it renders.",
+    explain: "A hidden tab closes its <code>@get</code> stream (openWhenHidden is false for GET); becoming visible opens a new one. Our <code>on-open</code> sends the whole current view, so the first event is already the truth. No replay buffer, no event ids, no drama. The new stream's GET also carries her tab's signals as they are now, so the server re-adopts her draft before it renders.",
   });
 })();

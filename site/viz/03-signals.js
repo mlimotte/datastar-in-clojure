@@ -89,10 +89,10 @@
       el("div", { class: "muted", text: "Ask the server for a price." }));
     payload.textContent = JSON.stringify(Object.fromEntries(SIGNALS.filter((s) => !s.startsWith("_")).map((s) => [s, state[s]])));
   }
-  function reset() { state = { ...INITIAL }; ev = evaluate(state); last = null; draw(); A.foot.textContent = "One medium oat latte. Every binding has run once and recorded what it read (the edges). No price anywhere: that is the server's answer."; }
+  function reset() { state = { ...INITIAL }; ev = evaluate(state); last = null; draw(); A.foot.textContent = "Our old friend, one medium oat latte. Every binding has run once and recorded what it read (the edges). Notice there's no price anywhere: that's the server's job, not ours."; }
   function write(name, v) {
     const before = ev;
-    if (state[name] === v) { last = { name, changed: false, ran: new Set(), changedComp: new Set() }; draw(); A.foot.textContent = `$${name} is already ${JSON.stringify(v)}. The write compares with !== and notifies nobody.`; return; }
+    if (state[name] === v) { last = { name, changed: false, ran: new Set(), changedComp: new Set() }; draw(); A.foot.textContent = `$${name} is already ${JSON.stringify(v)}. The write compares with !== and notifies nobody. Nothing to see here.`; return; }
     state = { ...state, [name]: v };
     const after = evaluate(state);
     const ran = new Set(), changedComp = new Set(), notes = [];
@@ -115,13 +115,13 @@
 
   // ---------- predict: what is sent ----------
   predict("#predict-sent", {
-    prompt: "The page has signals <code>drink size milk qty</code>, a private <code>_loading</code>, and two computed signals, <code>_summary</code> and <code>_unit</code>. Which does <code>@get('/quote')</code> send?",
+    prompt: "Pop quiz. The page has signals <code>drink size milk qty</code>, a private <code>_loading</code>, and two computed signals, <code>_summary</code> and <code>_unit</code>. Which ones does <code>@get('/quote')</code> actually send?",
     choices: ["drink, size, milk, qty, because computed signals are never sent",
       "drink, size, milk, qty, because the computed ones happen to start with <code>_</code>",
       "drink, size, milk, qty, _summary, _unit",
       "Everything, including <code>_loading</code>"],
     answer: 1,
-    explain: "The default filter excludes paths matching <code>/(^|\\.)_/</code> and nothing else. A computed signal is serialized like any other (its current value), so <code>data-computed:summary</code> without the underscore would be sent with every request.",
+    explain: "The default filter excludes paths matching <code>/(^|\\.)_/</code> and nothing else. Computed signals get no special treatment: one is serialized like any other (its current value), so <code>data-computed:summary</code> without the underscore would tag along on every single request.",
   });
 
   // ---------- figure B: one "Ask the server" round trip ----------
@@ -153,16 +153,16 @@
     const muted = { muted: true, text: "Ask the server for a price." };
     add(s, [], "", muted, `The draft reads "${summary}". The browser has no prices and shows none. Nothing has been sent.`);
     s = { ...s, _loading: true };
-    add(s, ["_loading"], "fetch STARTED (from the button)", muted, "The click runs @get. The fetch plugin fires STARTED for the button; data-indicator on that same button sets $_loading, and data-attr:disabled and data-class:busy re-run.");
-    add(s, [], `filtered(include /.*/, exclude /(^|\\.)_/) →\n${json}`, muted, "Signals are serialized. _loading, _summary and _unit are filtered out by the underscore.");
-    add(s, [], `GET /quote?datastar=${encodeURIComponent(json)}`, muted, "GET has no body, so the JSON is URL-encoded into the datastar query parameter.");
-    add(s, [], `(read-signals req)\n→ ${"{"}:drink "${draft.drink}" :size "${draft.size}" :milk "${draft.milk}" :qty ${draft.qty}}\n(->draft signals)\n→ {:drink :${draft.drink} :size :${draft.size} :milk :${draft.milk} :qty ${draft.qty}}`, muted, "The server parses the parameter with cheshire into a keyword map (anything that isn't a JSON object would give {}), then turns the strings into keywords.");
+    add(s, ["_loading"], "fetch STARTED (from the button)", muted, "The click runs @get. The fetch plugin fires STARTED for the button; data-indicator on that same button sets $_loading, and data-attr:disabled and data-class:busy dutifully re-run.");
+    add(s, [], `filtered(include /.*/, exclude /(^|\\.)_/) →\n${json}`, muted, "Signals are serialized. _loading, _summary and _unit get bounced at the door by the underscore.");
+    add(s, [], `GET /quote?datastar=${encodeURIComponent(json)}`, muted, "GET has no body, so the JSON gets URL-encoded into the datastar query parameter, same as part 1.");
+    add(s, [], `(read-signals req)\n→ ${"{"}:drink "${draft.drink}" :size "${draft.size}" :milk "${draft.milk}" :qty ${draft.qty}}\n(->draft signals)\n→ {:drink :${draft.drink} :size :${draft.size} :milk :${draft.milk} :qty ${draft.qty}}`, muted, "The server parses the parameter with cheshire into a keyword map (anything that isn't a JSON object would give {}, because we don't trust the browser), then turns the strings into keywords.");
     add(s, [], err ? `(draft-error draft)\n→ "${err}"` : `(draft-error draft) → nil\n(price-cents draft) → ${BREW.byId[draft.drink].base} + ${BREW.SIZE_DELTA[draft.size]} + ${BREW.MILK_DELTA[draft.milk]} = ${cents}\n(* ${cents} ${draft.qty}) → ${cents * draft.qty}`, muted,
-      err ? "Only the server knows which drinks take milk. The static selects let the customer pick oat; validation refuses it." : "The draft is valid, so the server prices it from its own menu. This is the only place the pricing rule exists.");
-    add(s, [], `event: datastar-patch-elements\ndata: elements ${quoteHtml}\n`, muted, "One event: an element with id quote. No signals in the answer.");
-    add(s, [], "morph #quote by id", { error: !!err, html: quoteHtml }, err ? "The browser morphs #quote into the error line. No signal holds the error; the next answer replaces it." : "The browser morphs #quote. The wording and the currency format came from the server; the page holds no copy of the price.");
+      err ? "Only the server knows which drinks take milk. The static selects happily let the customer pick oat; validation says no." : "The draft is valid, so the server prices it from its own menu. This is the only place in the whole app where the pricing rule exists. One place. On purpose.");
+    add(s, [], `event: datastar-patch-elements\ndata: elements ${quoteHtml}\n`, muted, "One event: an element with id quote. No signals in the answer, not a single one.");
+    add(s, [], "morph #quote by id", { error: !!err, html: quoteHtml }, err ? "The browser morphs #quote into the error line. No signal holds the error, so there's nothing to clean up later: the next answer just replaces it." : "The browser morphs #quote. The wording and the currency format came from the server, and the page holds no copy of the price to go stale.");
     s = { ...s, _loading: false };
-    add(s, ["_loading"], "EOF → fetch FINISHED", { error: !!err, html: quoteHtml }, "The stream ends. FINISHED drops the indicator's count to 0, $_loading is false, and the button is enabled again.");
+    add(s, ["_loading"], "EOF → fetch FINISHED", { error: !!err, html: quoteHtml }, "The stream ends. FINISHED drops the indicator's count to 0, $_loading is false, and the button is back in business.");
     return F;
   }
   const quoteEl = (q) => {

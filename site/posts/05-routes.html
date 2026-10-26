@@ -29,63 +29,66 @@
   @media (max-width: 560px) { .sq-lanes { grid-template-columns: 1fr; } .sq-lane { min-height: 0; } }
 </style>
   <h1>Shaping the backend</h1>
-  <p class="dek">A Datastar backend has two kinds of handler: page GETs that return a whole document,
-    and Datastar requests that return patches. Split the second kind into queries and commands, keep
-    the state change in one pure function, and the route table stays small and readable as the app
-    grows.</p>
+  <p class="dek">A Datastar backend has exactly two kinds of handler: page GETs that return a whole
+    document, and Datastar requests that return patches. Split the second kind into queries and
+    commands, keep the state change in one pure function, and the route table stays small and
+    readable as the app grows. Which is not, historically speaking, what route tables do.</p>
 
   <div data-warmup></div>
 
-  <p>Parts 1–4 added routes one at a time: <code>/hello</code>, <code>/quote</code>,
-    <code>/drink-options</code>, <code>/cart/items</code>. Each handler read some input, maybe changed
-    the atom, and returned the events for the elements it changed. That works for four routes. Brew
-    Board needs about a dozen, and two kinds of user (Ada at the counter, Sam behind it) who see the
-    same orders. Before we add the rest, it is worth deciding what shape every handler should have.
-    This part decides it. Part 6 then changes one thing about it, and that change is why the shape
-    matters.</p>
+  <p>Let's take stock. Parts 1–4 added routes one at a time, like a kid adding rooms to a treehouse:
+    <code>/hello</code>, <code>/quote</code>, <code>/drink-options</code>, <code>/cart/items</code>.
+    Each handler read some input, maybe changed the atom, and returned the events for the elements it
+    changed. That works fine for four routes. But Brew Board needs about a dozen, and two kinds of
+    user (Ada at the counter, Sam behind it) who see the same orders. So before we nail on any more
+    rooms, it's worth deciding what shape every handler should have. This part decides it. Then part
+    6 changes exactly one thing about that shape, and that one change is why the shape matters so
+    much.</p>
 
   <h2>Two kinds of request</h2>
 
   <p>A browser asks a Datastar backend for things in two different ways, and they need different
-    responses.</p>
+    responses. Mix them up and you'll get some very confusing bug reports.</p>
 
-  <p><b>A page GET</b> is a normal navigation: the user typed <code>/board</code> or followed a link.
-    There is no Datastar in the request. The browser wants a whole HTML document, so the response is
-    <code>text/html</code> with <code>&lt;!DOCTYPE html&gt;</code>, the Datastar
-    <code>&lt;script type="module"&gt;</code> tag, and the first render of the view. This is also where
-    the <code>sid</code> cookie is set, because it is the first request a new visitor makes.</p>
+  <p><b>A page GET</b> is a normal, old-fashioned navigation: the user typed <code>/board</code> or
+    followed a link. There's no Datastar in the request at all. The browser wants a whole HTML
+    document, so the response is <code>text/html</code> with <code>&lt;!DOCTYPE html&gt;</code>, the
+    Datastar <code>&lt;script type="module"&gt;</code> tag, and the first render of the view. This is
+    also where the <code>sid</code> cookie gets set, because it's the first request a new visitor
+    makes.</p>
 
   <p><b>A Datastar request</b> comes from an action in an attribute: <code>@get('/drink-options')</code>,
     <code>@post('/orders')</code>. Datastar's <code>fetch.ts</code> sends it with
-    <code>fetch()</code>, not a navigation, so the page stays where it is. Every such request carries
-    the header <code>Datastar-Request: true</code> and <code>Accept: text/event-stream, text/html,
-    application/json</code>, and it carries the signals: as URL-encoded JSON in the
-    <code>datastar</code> query parameter for GET and DELETE, and as a JSON body for POST, PUT and
-    PATCH. The response is a list of patches, usually as an SSE stream.</p>
+    <code>fetch()</code>, not a navigation, so the page stays right where it is. Every such request
+    carries the header <code>Datastar-Request: true</code> and <code>Accept: text/event-stream, text/html,
+    application/json</code> (the name tag from part 1), and it carries the signals: as URL-encoded JSON
+    in the <code>datastar</code> query parameter for GET and DELETE, and as a JSON body for POST, PUT
+    and PATCH. The response is a list of patches, usually as an SSE stream.</p>
 
-  <p>Inside the second kind, split again by what the request does to the server:</p>
+  <p>Now split the second kind again, this time by what the request does to the server:</p>
 
   <ul>
-    <li><b>Queries</b> read state and return a view of it. They change nothing. They are GETs:
-      <code>GET /drink-options</code> reads <code>$drink</code> and returns the drop-down. A query is
-      safe to repeat, to retry and to prefetch.</li>
+    <li><b>Queries</b> read state and return a view of it. They change nothing. Nothing! They are
+      GETs: <code>GET /drink-options</code> reads <code>$drink</code> and returns the drop-down. A
+      query is safe to repeat, to retry and to prefetch, as many times as you like.</li>
     <li><b>Commands</b> change state. They are POST, PUT or DELETE: add a line to a cart, place an
-      order, advance an order, toggle a milk. A command is <em>not</em> safe to repeat blindly, and it
-      needs the guard we add below.</li>
+      order, advance an order, toggle a milk. A command is <em>not</em> safe to repeat blindly (ask
+      anyone who's been charged twice for one latte), and it needs the guard we add below.</li>
   </ul>
 
-  <p>This is the same split as CQRS, at the scale of one atom. It costs nothing to adopt and it decides
+  <p>If this smells familiar, it should. It's the same split as CQRS, just at the scale of one atom
+    instead of a fleet of message queues and a consultant. It costs nothing to adopt, and it decides
     three things for you: the HTTP method, whether the route is guarded, and (in part 6) whether the
     route returns any HTML at all.</p>
 
   <h2>The route table</h2>
 
   <p>Parts 1–4 routed with a <code>case</code> on <code>[request-method uri]</code>. That was fine
-    for four fixed paths, but it can't match <code>/orders/:id/advance</code>, and it has nowhere to say
-    "these routes need a guard". The route table has outgrown a <code>case</code>, so this part
-    switches to reitit, where routes are data. Here is Brew Board's table from
-    <code>lesson05.routes</code>, with the two live streams and the native routes left out (they
-    arrive in parts 6 and 7):</p>
+    for four fixed paths, but it can't match <code>/orders/:id/advance</code>, and it has nowhere to
+    say "these routes need a guard". The route table has outgrown its <code>case</code>, the way kids
+    outgrow shoes, so this part switches to reitit, where routes are data. Here's Brew Board's table
+    from <code>lesson05.routes</code>, with the two live streams and the native routes left out (they
+    show up in parts 6 and 7):</p>
 
 <pre><code class="language-clojure">(defn app [!state]
   (let [command (fn [f] {:handler f :middleware [wrap-datastar-request]})]
@@ -102,16 +105,18 @@
       (ring/create-default-handler)
       {:middleware [wrap-params wrap-cookies wrap-sid]})))</code></pre>
   <p class="caption">Abridged: in the lesson the command handlers are short inline fns that build a
-    command map and call <code>run-command!</code>. <code>command</code> puts the guard into each
-    command route's data, so every command is guarded and no page or query is. (A reitit parent route
-    with <code>:middleware</code> in its data would do the same for a group.)</p>
+    command map and call <code>run-command!</code>. The little <code>command</code> helper puts the
+    guard into each command route's data, so every command is guarded and no page or query is. (A
+    reitit parent route with <code>:middleware</code> in its data would do the same for a
+    group.)</p>
 
-  <p>Read the table top to bottom and you can see the whole app's surface. Three GETs anyone can make.
-    Five commands, all guarded. A command's path names the thing it acts on
-    (<code>/orders/:id</code>) and ends in a verb when the HTTP method isn't enough
-    (<code>/advance</code>, <code>/toggle</code>). Nothing here is Datastar-specific: there is no
+  <p>Read the table top to bottom and you can see the whole app's surface area in one glance. That's
+    rarer than it should be. Three GETs anyone can make. Five commands, all guarded. A command's path
+    names the thing it acts on (<code>/orders/:id</code>) and ends in a verb when the HTTP method
+    isn't enough (<code>/advance</code>, <code>/toggle</code>). And notice what's <em>missing</em>,
+    because it's the interesting part. Nothing here is Datastar-specific: there's no
     <code>/api</code> prefix, no JSON endpoints, and no route that exists only to feed a client-side
-    store. Routes return HTML, either a page or patches, and that is the hypermedia part.</p>
+    store. Routes return HTML, either a page or patches, and that's the hypermedia part.</p>
 
   <p>Try each request below. The figure shows the bytes that arrive, which route matches, whether the
     guard passes, which inputs the handler actually reads, and what it sends back.</p>
@@ -120,19 +125,21 @@
 
   <h2>Inputs: path, cookie, signals</h2>
 
-  <p>A Brew Board handler has three places to get input, and each is right for a different thing.</p>
+  <p>A Brew Board handler has three places to get input, and each one is right for a different
+    thing. Using the wrong one is how you end up with a URL that has a user's shopping cart in
+    it.</p>
 
   <p><b>The path</b> names the resource: <code>:id</code> in <code>/orders/:id/advance</code>,
-    <code>:milk</code> in <code>/stock/:milk/toggle</code>. It is visible in logs, it is part of the
-    URL the button calls, and it cannot be changed by typing in a form field.</p>
+    <code>:milk</code> in <code>/stock/:milk/toggle</code>. It's visible in logs, it's part of the
+    URL the button calls, and it can't be changed by typing in a form field.</p>
 
-  <p><b>The cookie</b> says who is asking. <code>wrap-sid</code> reads the <code>sid</code> cookie,
+  <p><b>The cookie</b> says who's asking. <code>wrap-sid</code> reads the <code>sid</code> cookie,
     or makes a fresh UUID on a page GET and sets it. Ada's cart is
     <code>(get-in @state [:carts sid])</code>. The browser sends the cookie on every same-origin
-    <code>fetch</code>, so Datastar requests get it without any attribute.</p>
+    <code>fetch</code>, so Datastar requests get it without you writing a single attribute.</p>
 
-  <p><b>The signals</b> carry what the user typed or chose. Here is the reader, the same function
-    part 3 built:</p>
+  <p><b>The signals</b> carry what the user typed or chose. Here's the reader, the same function
+    part 3 built (old friends are the best friends):</p>
 
 <pre><code class="language-clojure">(defn read-signals [{:keys [request-method query-params body]}]
   (let [raw    (if (#{:get :delete} request-method)
@@ -142,32 +149,36 @@
                  (try (json/parse-string raw true) (catch Exception _ nil)))]
     (if (map? parsed) parsed {})))</code></pre>
   <p class="caption">Unparseable or non-object JSON gives <code>{}</code>, so a hand-made request
-    reaches validation and gets a message, not a 500. The tests post <code>not json</code> to
+    reaches validation and gets a polite message, not a 500. The tests post <code>not json</code> to
     <code>/cart/items</code> and expect "Pick a drink."</p>
 
-  <p>The important fact about signals is the one people get wrong. Datastar does not send "the signals
-    this action uses". The default filter in <code>fetch.ts</code> is
-    <code>include = /.*/</code>, <code>exclude = /(^|\.)_/</code>: it sends <em>every</em> signal
-    on the page whose name has no <code>_</code>-prefixed segment. Try it before reading on.</p>
+  <p>Now, the important fact about signals is the one people get wrong, and they get it wrong
+    confidently. Datastar does <em>not</em> send "the signals this action uses". It has no idea which
+    signals an action uses, and it doesn't try to guess. The default filter in <code>fetch.ts</code>
+    is <code>include = /.*/</code>, <code>exclude = /(^|\.)_/</code>: it sends <em>every</em> signal
+    on the page whose name has no <code>_</code>-prefixed segment. Every one. Try it before you read
+    on.</p>
 
   <div id="predict-signals"></div>
 
   <p>So a handler must pick the keys it uses and ignore the rest. <code>place-order</code> reads
     <code>:customer</code> and nothing else. <code>add-item</code> reads <code>:drink :size :milk
     :qty</code>, and then checks them against the menu and the sold-out set. That check is not
-    optional. Signals are input, as untrusted as a form post, and a user can set any of them from
-    the browser console. Using <code>select-keys</code> plus a validator, as <code>add-to-cart</code>
-    did in part 4, is the habit to keep.</p>
+    optional, and I can't stress this enough. Signals are input, as untrusted as a form post, and a
+    user can set any of them from the browser console in about four seconds. Using
+    <code>select-keys</code> plus a validator, as <code>add-to-cart</code> did in part 4, is the habit
+    to keep.</p>
 
-  <div class="aside"><p>You can narrow what is sent per action, e.g.
-    <code>@post('/orders', {filterSignals: {include: /^customer$/}})</code>. It cuts bytes, and it is
-    worth doing when a page has a large signal you never want on the wire. It is not a security
-    boundary: the server still validates whatever arrives.</p></div>
+  <div class="aside"><p>You can narrow what gets sent per action, e.g.
+    <code>@post('/orders', {filterSignals: {include: /^customer$/}})</code>. It cuts bytes, and it's
+    worth doing when a page has a large signal you never want on the wire. But it is <em>not</em> a
+    security boundary, so don't let it lull you. The server still validates whatever arrives.</p></div>
 
   <h2>A pure core: <code>handle-command</code></h2>
 
   <p>Every command does the same three things: read its inputs from the request, change the state,
-    and respond. Only the middle step is about coffee. Put it in one pure function:</p>
+    and respond. Only the middle step is actually about coffee. The other two are plumbing. So put the
+    coffee part in one pure function, and keep it far away from the plumbing:</p>
 
 <pre><code class="language-clojure">(defn handle-command [state {:keys [type sid line idx customer id milk]}]
   (case type
@@ -187,23 +198,26 @@
     :toggle-stock     (update state :sold-out #(if (% milk) (disj % milk) (conj % milk)))
     state))</code></pre>
   <p class="caption">Slightly condensed from <code>lesson05.routes</code>. A command that doesn't
-    apply (an invalid line, an empty cart, an unknown order) returns the state unchanged.</p>
+    apply (an invalid line, an empty cart, an unknown order) returns the state unchanged. No
+    exceptions, no drama.</p>
 
   <p>The handler is now thin: turn the request into a command map, then
-    <code>run-command!</code>, which is <code>(command-response (swap! !state handle-command cmd) cmd)</code>. A pure function of state and command is easy to test
-    (call it with a map, compare the result) and easy to read, because all of Brew Board's business
-    rules are in one <code>case</code>. It is also the piece that does not change in part 6. Only the
-    response changes.</p>
+    <code>run-command!</code>, which is <code>(command-response (swap! !state handle-command cmd) cmd)</code>.
+    A pure function of state and command is easy to test (call it with a map, compare the result) and
+    easy to read, because all of Brew Board's business rules live in one <code>case</code>. One!
+    You can read every rule in the app without scrolling. And here's the part to remember: it's also
+    the piece that does <em>not</em> change in part 6. Only the response changes.</p>
 
-  <p>Validation sits just before the swap, and has a Datastar-specific detail. Datastar applies the
-    body only of a <b>200</b> response. In <code>fetch.ts</code>, any other status skips the stream
-    parser: a 204 or a redirect ends quietly, and a 4xx or 5xx fires a <code>datastar-fetch</code>
-    error event and patches nothing (and with the default <code>retry: 'auto'</code>, it isn't retried).
-    So "you can't order oat milk, it's sold out" is a <b>200</b> whose events patch an error message
-    into the page, as HTML: <code>add-item</code> answers a refused line with
-    <code>&lt;p id="draft-error"&gt;Oat milk is sold out.&lt;/p&gt;</code> and a good one with the
-    new <code>#cart</code> plus an empty <code>#draft-error</code>. No signal holds the message. A 4xx
-    is for requests no honest page would send.</p>
+  <p>Validation sits just before the swap, and it has a Datastar-specific wrinkle. Datastar applies
+    the body only of a <b>200</b> response. In <code>fetch.ts</code>, any other status skips the
+    stream parser: a 204 or a redirect ends quietly, and a 4xx or 5xx fires a
+    <code>datastar-fetch</code> error event and patches nothing (and with the default
+    <code>retry: 'auto'</code>, it isn't retried). Which means your instinct to send a 422 is going to
+    produce a page that does absolutely nothing. So "you can't order oat milk, it's sold out" is a
+    <b>200</b> whose events patch an error message into the page, as HTML: <code>add-item</code>
+    answers a refused line with <code>&lt;p id="draft-error"&gt;Oat milk is sold out.&lt;/p&gt;</code>
+    and a good one with the new <code>#cart</code> plus an empty <code>#draft-error</code>. No signal
+    holds the message. A 4xx is for requests no honest page would ever send.</p>
 
 <pre><code class="language-clojure">(defn add-item [!state {:keys [sid] :as req}]
   (let [line (draft-line (sse/read-signals req))]
@@ -214,11 +228,11 @@
 
   <h2>Responding: fragment per action</h2>
 
-  <p>In this part each command answers with the patches for what it changed. That is
+  <p>In this part, each command answers with the patches for whatever it changed. That's
     <code>command-response</code>: given the new state and the command, return the response. For
-    <code>add-to-cart</code> that means the new <code>#cart</code>. For <code>place-order</code> it means
-    the empty <code>#cart</code>, the new entry in <code>#my-orders</code>, and a patch-signals that
-    clears <code>$customer</code>:</p>
+    <code>add-to-cart</code> that means the new <code>#cart</code>. For <code>place-order</code> it
+    means the empty <code>#cart</code>, the new entry in <code>#my-orders</code>, and a patch-signals
+    that clears <code>$customer</code>:</p>
 
 <pre><code class="language-http">HTTP/1.1 200 OK
 Content-Type: text/event-stream
@@ -237,35 +251,38 @@ data: signals {"customer":""}
   <div class="aside"><p><strong>Tip.</strong> When the server re-renders an element anyway, let it
     decide <code>disabled</code> too. <code>cart-view</code> renders "Place order" with
     <code>disabled</code> while the cart is empty, and every cart command re-sends
-    <code>#cart</code>, so the button is always right. A client expression such as
+    <code>#cart</code>, so the button is always right, for free. A client expression such as
     <code>data-attr:disabled="$cartCount == 0"</code> would need a count signal that mirrors server
-    state.</p></div>
+    state, and you know how part 4 feels about mirrors.</p></div>
 
-  <p>It is the natural first design, and the one you'd write coming from htmx. It also has a cost
-    that grows with the app: <b>each command has to know which parts of which pages show the thing it
-    changed.</b> <code>place-order</code> knows about <code>#cart</code> and
-    <code>#my-orders</code>. When you add an order count to the header, you must remember to add it
-    to <code>place-order</code>'s response, and to <code>advance-order</code>'s, and to every other
-    command that changes orders. Forget one and that view is stale until a reload.</p>
+  <p>This is the natural first design, and it's the one you'd write coming from htmx. There's
+    nothing dumb about it. But it also has a cost, and the cost grows with the app like a slow
+    leak: <b>each command has to know which parts of which pages show the thing it changed.</b>
+    <code>place-order</code> knows about <code>#cart</code> and <code>#my-orders</code>. Now add an
+    order count to the header. You must remember to add it to <code>place-order</code>'s response,
+    and to <code>advance-order</code>'s, and to every other command that changes orders. Forget one
+    and that view is stale until a reload. And you <em>will</em> forget one. Everybody does.</p>
 
-  <p>And there is a worse gap. The response goes to the browser that sent the request. Sam has
-    <code>/board</code> open in another browser. What does Sam see when Ada orders?</p>
+  <p>And there's a worse gap hiding behind that one. The response goes to the browser that sent the
+    request. Only that browser. Sam has <code>/board</code> open in another browser. So: what does Sam
+    see when Ada orders?</p>
 
   <div id="predict-board"></div>
 
   <div id="viz-seq"></div>
 
-  <p>The second mode in the figure is where part 6 goes. Commands answer <b>204 No Content</b> and do
-    nothing but <code>swap!</code>. Every open page holds one long-lived GET, and when the atom
-    changes, the server renders each page's <em>whole</em> view again and sends it down that stream.
-    No command knows about any view, and every viewer is current. It sounds expensive and it sounds
-    like it would wreck focus and typed text. Part 6 shows why it does neither.</p>
+  <p>The second mode in the figure is where part 6 goes, and it's going to feel like cheating.
+    Commands answer <b>204 No Content</b> and do nothing but <code>swap!</code>. Every open page holds
+    one long-lived GET, and when the atom changes, the server renders each page's <em>whole</em> view
+    again and sends it down that stream. No command knows about any view, and every viewer is current.
+    Now, I know what you're thinking. It sounds expensive, and it sounds like it would wreck focus and
+    typed text. Part 6 shows why it does neither.</p>
 
   <h2>Guarding commands</h2>
 
-  <p>A command changes state using the caller's cookie, so it is a CSRF target: a page on
-    <code>evil.example</code> could make Ada's browser post to <code>/orders</code>, and the browser
-    would attach Ada's cookie. Brew Board uses a cheap guard:</p>
+  <p>A command changes state using the caller's cookie, which makes it a CSRF target. A page on
+    <code>evil.example</code> could make Ada's browser post to <code>/orders</code>, and the browser,
+    trying to be helpful, would attach Ada's cookie. Brew Board uses a cheap guard:</p>
 
 <pre><code class="language-clojure">(defn wrap-datastar-request [handler]
   (fn [req]
@@ -273,72 +290,79 @@ data: signals {"customer":""}
       (handler req)
       {:status 403 :headers {"Content-Type" "text/plain"} :body "Datastar requests only"})))</code></pre>
 
-  <p>Why this helps: a plain HTML form on another site can POST cross-origin, but it cannot set a custom
-    header. A cross-origin <code>fetch</code> that sets <code>Datastar-Request</code> is not a
-    "simple request", so the browser first sends a CORS preflight, and our server does not answer
-    preflights with permission, so the real request is never sent. (Ring lowercases header names,
-    hence <code>"datastar-request"</code>.)</p>
+  <p>Why does this help? Because a plain HTML form on another site can POST cross-origin, but it
+    can't set a custom header. A cross-origin <code>fetch</code> that sets
+    <code>Datastar-Request</code> is not a "simple request", so the browser first sends a CORS
+    preflight, and our server doesn't answer preflights with permission, so the real request is never
+    sent. The attacker's page asks "may I?" and gets silence. (Ring lowercases header names, hence
+    <code>"datastar-request"</code>.)</p>
 
-  <p>Be precise about what this is. It is a <b>partial</b> defense. It relies on the server never
-    adding permissive CORS headers, and it is best paired with <code>SameSite=Lax</code> (or
-    <code>Strict</code>) on the session cookie, which stops the browser attaching the cookie to
-    cross-site POSTs at all. A real app adds a CSRF token as well: render it into a signal on the page
-    GET (for instance <code>data-signals:csrf</code>, not <code>_</code>-prefixed, because it has to be
-    sent), and check it in this same middleware. The toy stops at the header.</p>
+  <p>But let's be precise about what this is, because security is the one place where vagueness
+    gets people hurt. It is a <b>partial</b> defense. It relies on the server never adding permissive
+    CORS headers, and it's best paired with <code>SameSite=Lax</code> (or <code>Strict</code>) on the
+    session cookie, which stops the browser attaching the cookie to cross-site POSTs at all. A real
+    app adds a CSRF token as well: render it into a signal on the page GET (for instance
+    <code>data-signals:csrf</code>, not <code>_</code>-prefixed, because it has to be sent), and check
+    it in this same middleware. The toy stops at the header. It's a toy.</p>
 
-  <h2>Expressions are JavaScript</h2>
+  <h2>Expressions are JavaScript (or: escaping won't save you)</h2>
 
   <p>The board renders one button per order, with the order's id inside the expression:
-    <code>(str "@post('/orders/" id "/advance')")</code>. That is safe because <code>id</code> is an
-    integer the server assigned. Now suppose a "reorder" button carried the customer's name the
-    same way:</p>
+    <code>(str "@post('/orders/" id "/advance')")</code>. That's safe, because <code>id</code> is an
+    integer the server assigned, and integers are famously bad at JavaScript injection. Now suppose a
+    "reorder" button carried the customer's name the same way:</p>
 
 <pre><code class="language-clojure">;; WRONG: a stored value inside an expression
 [:button {:data-on:click (str "@post('/orders?for=" customer "')")} "Reorder"]</code></pre>
 
-  <p>A customer who typed their name as <code>x');alert(1);('</code> gets this HTML:</p>
+  <p>A customer who typed their name as <code>x');alert(1);('</code> (there's always one) gets this
+    HTML:</p>
 
 <pre><code class="language-html">&lt;button data-on:click="@post(&amp;apos;/orders?for=x&amp;apos;);alert(1);(&amp;apos;&amp;apos;)"&gt;</code></pre>
 
-  <p>Hiccup escaped every quote, and it didn't help. Escaping protects the HTML <em>attribute</em>:
-    the browser decodes <code>&amp;apos;</code> back to <code>'</code> when it parses the page, and
-    Datastar reads the decoded value from <code>el.dataset</code> (<code>applyEls</code> in
-    <code>engine.ts</code>). What Datastar evaluates is
-    <code>@post('/orders?for=x');alert(1);('')</code>, three JavaScript statements, the second of
-    them chosen by the customer. That is stored XSS, and it fires for whoever clicks Sam's button.</p>
+  <p>Hiccup escaped every quote, dutifully, and it didn't help one bit. Here's why. Escaping protects
+    the HTML <em>attribute</em>: the browser decodes <code>&amp;apos;</code> back to <code>'</code> when
+    it parses the page, and Datastar reads the decoded value from <code>el.dataset</code>
+    (<code>applyEls</code> in <code>engine.ts</code>). So what Datastar evaluates is
+    <code>@post('/orders?for=x');alert(1);('')</code>: three JavaScript statements, the second of them
+    chosen by the customer. That's stored XSS, and it fires for whoever clicks Sam's button. Which is
+    Sam. Poor Sam.</p>
 
-  <p>The rule: put only three kinds of thing inside an expression string.</p>
+  <p>So here's the rule: put only three kinds of thing inside an expression string.</p>
 
   <ul>
     <li><b>Server literals</b>: an integer id, a keyword from a fixed set (<code>(name milk)</code>
       for <code>:oat</code>), <code>true</code>/<code>false</code>.</li>
     <li><b>URL-encoded values</b>: <code>(ring.util.codec/url-encode customer)</code> turns
       <code>x');alert(1);('</code> into <code>x%27%29%3Balert%281%29%3B%28%27</code>, which can't
-      end the string.</li>
+      end the string no matter how hard it tries.</li>
     <li><b>Signal references</b>: <code>@post('/orders')</code> and let <code>$customer</code> travel
       in the body, or refer to an id the server owns and look the name up there.</li>
   </ul>
 
-  <p>Never a raw stored or request value. The same thinking covers the other two places values meet
-    code. Seed signals with cheshire (<code>{:data-signals (json/generate-string m)}</code>): JSON
-    is a JavaScript literal and cheshire escapes the quotes inside strings, which hand-built
+  <p>Never a raw stored or request value. Never. The same thinking covers the other two places where
+    values meet code. Seed signals with cheshire (<code>{:data-signals (json/generate-string m)}</code>):
+    JSON is a JavaScript literal and cheshire escapes the quotes inside strings, which hand-built
     <code>(str "{name: '" name "'}")</code> doesn't. And inline <code>&lt;script&gt;</code> text must
-    escape <code>&lt;/</code>, or a value containing <code>&lt;/script&gt;</code> ends the tag; part 7's
-    <code>bridge-script</code> does this.</p>
+    escape <code>&lt;/</code>, or a value containing <code>&lt;/script&gt;</code> ends the tag early;
+    part 7's <code>bridge-script</code> does this.</p>
 
   <div class="compare" data-label="How htmx does it"><p>htmx marks its requests with
     <code>HX-Request: true</code> and expects HTML fragments back, swapped by
     <code>hx-target</code>/<code>hx-swap</code> attributes on the <em>client</em>. Datastar puts the
-    target in the response: the element's <code>id</code>, or a <code>selector</code> and
-    <code>mode</code> in the event. That moves "which part of the page does this update?" from markup
-    to the server, which is what makes part 6's whole-view render possible.</p></div>
+    target in the response instead: the element's <code>id</code>, or a <code>selector</code> and
+    <code>mode</code> in the event. That sounds like a small difference. It isn't. It moves "which
+    part of the page does this update?" from markup to the server, and that's exactly what makes part
+    6's whole-view render possible.</p></div>
 
   <h2>What a good route table looks like</h2>
 
+  <p>If you remember nothing else from this part, remember this list:</p>
+
   <ul>
-    <li><b>Few GETs, no "data" endpoints.</b> Pages, and queries that return patches. If you find
-      yourself writing <code>GET /api/orders</code> returning JSON for the page to render, you are
-      rebuilding the SPA. Render the HTML on the server.</li>
+    <li><b>Few GETs, no "data" endpoints.</b> Pages, and queries that return patches. If you catch
+      yourself writing <code>GET /api/orders</code> returning JSON for the page to render, stop. You
+      are rebuilding the SPA, one endpoint at a time. Render the HTML on the server.</li>
     <li><b>Commands are named for intent.</b> <code>POST /orders/:id/advance</code>, not
       <code>PUT /orders/:id</code> with a status field. The server decides what "advance" means; the
       client can't send <code>:status :picked-up</code> and skip <code>:making</code>.</li>
@@ -349,24 +373,26 @@ data: signals {"customer":""}
     <li><b>Responses are patches</b>, and (from part 6) mostly not even that.</li>
   </ul>
 
-  <div class="code-ref"><p><code>clojure/src/lesson05/routes.clj</code> (ns
-    <code>lesson05.routes</code>), tests in <code>clojure/test/lesson05/routes_test.clj</code>. The
-    demo starts the server, sends each request from the figure (including the forged one without
-    the header), and prints the status and the raw SSE that comes back:
-    <code>cd clojure &amp;&amp; clojure -M -m lesson05.routes</code>. At the REPL,
+  <div class="code-ref"><p>The code is in <code>clojure/src/lesson05/routes.clj</code> (ns
+    <code>lesson05.routes</code>), with tests in <code>clojure/test/lesson05/routes_test.clj</code>.
+    The demo starts the server, sends each request from the figure (including the forged one without
+    the header, so you can watch it bounce), and prints the status and the raw SSE that comes back:
+    <code>cd clojure &amp;&amp; clojure -M -m lesson05.routes</code>. At the REPL, run
     <code>(lesson05.routes/start! 8080)</code> and open <code>http://localhost:8080/</code> and
-    <code>/board</code> side by side to see the stale board for yourself.</p></div>
+    <code>/board</code> side by side to see the stale board for yourself. Place an order. Look at
+    Sam's screen. Feel Sam's pain.</p></div>
 
-  <div class="build-it"><p>The exercise track for this part: <code>handle-command</code> (the pure
-    state transition for all five commands), <code>wrap-datastar-request</code> (the guard) and
-    <code>command-response</code> (which patches each command sends back). Hints are on the
-    <a href="../exercises.html">exercises page</a>.</p>
+  <div class="build-it"><p>Your turn. The exercise track for this part has three functions:
+    <code>handle-command</code> (the pure state transition for all five commands),
+    <code>wrap-datastar-request</code> (the guard) and <code>command-response</code> (which patches
+    each command sends back). Hints are on the <a href="../exercises.html">exercises page</a>.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson05.routes-test</code></pre></div>
 
   <div data-wild></div>
 
-  <div class="takeaway"><p>Pages are GETs that return documents. Datastar requests split into queries
-    (GET, change nothing) and commands (POST/PUT/DELETE, guarded, change state through one pure
-    <code>handle-command</code>). Signals arrive all at once, so pick the keys you use and validate
-    them. Answering each command with the patches it caused works, but only for the browser that
-    asked. That gap is what part 6 closes.</p></div>
+  <div class="takeaway"><p>Here's the whole part in one breath. Pages are GETs that return
+    documents. Datastar requests split into queries (GET, change nothing) and commands
+    (POST/PUT/DELETE, guarded, change state through one pure <code>handle-command</code>). Signals
+    arrive all at once, so pick the keys you use and validate them. Answering each command with the
+    patches it caused works, but only for the browser that asked. That gap, the one Sam keeps falling
+    into, is what part 6 closes.</p></div>
