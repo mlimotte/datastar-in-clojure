@@ -65,3 +65,17 @@
       (swap! !s state/handle-command {:type :toggle-stock :milk :oat})
       (hub/broadcast! h !s state/initial @!s)
       (is (= 2 (count @!b))))))
+
+(deftest failing-subscriber-test
+  (testing "a subscriber whose render throws is logged and skipped; the command does not fail"
+    (let [h      (hub/new-hub)
+          [!b b] (sink)
+          !s     (atom state/initial)
+          err    (java.io.StringWriter.)]
+      (hub/watch-state! h !s)
+      (hub/subscribe! h :b {:send-fn b :view-fn (fn [s] [:main#app (count (:sold-out s))])} !s)
+      (swap! h assoc :a {:send-fn identity :view-fn (fn [_] (throw (ex-info "boom" {})))})
+      (binding [*err* err]
+        (swap! !s state/handle-command {:type :toggle-stock :milk :oat}))
+      (is (= 2 (count @!b)))
+      (is (string/includes? (str err) "broadcast: skipped :a boom")))))

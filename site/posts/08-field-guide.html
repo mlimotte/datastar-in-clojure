@@ -40,9 +40,9 @@
   <p class="dek"><b>Optional: for weighing alternative architectures.</b> Parts 1–7 built Brew Board one way: our way. This part is where we put
     the tools down, step back from the workbench, and squint at what we made. First come two practices
     that decide where your code goes: the decision ladder, and how navigation and the URL work when
-    Datastar flat-out refuses to have a history API. Then come six places where a perfectly reasonable
+    Datastar flat-out refuses to have a history API. Then come seven places where a perfectly reasonable
     app could have gone the other way, each with what it costs and what Brew Board chose. No
-    sacred cows. Well, maybe one.</p>
+    sacred cows.</p>
 
   <p>Here's where most of this part came from. We set the course down next to a production Datastar
     codebase and went through it rule by rule, asking one rude question of each: are you about
@@ -210,9 +210,9 @@
       entirely: the server publishes navigation rules, and the shell owns the stack.</p>
   </div>
 
-  <h2>Six trade-offs</h2>
+  <h2>Seven trade-offs</h2>
 
-  <p>Here's where we stop handing down rules and start arguing. For each of the six: when you'd pick
+  <p>Here's where we stop handing down rules and start arguing. For each of the seven: when you'd pick
     each side, what it costs you, and what Brew Board chose. Reasonable people land on both sides of
     most of these, and I'll tell you when that's the case.</p>
 
@@ -264,7 +264,9 @@
       teleporting it.</li>
   </ul>
   <p><b>Brew Board chose:</b> whole view, sorted by status. That's fine for a barista who watches the
-    board, and a known hazard for one who clicks fast. We know. We left it in so you'd see it.</p>
+    board, and a known hazard for one who clicks fast. We know. We left it in so you'd see it. And for
+    where the whole-view design goes once one atom and one lock aren't enough, see part 6's
+    <a href="06-live.html#where-next">"Where this goes next"</a>.</p>
 
   <h3>2. <code>text/html</code> or SSE for reads</h3>
 
@@ -328,9 +330,7 @@ datastar-mode: append
 
   <div id="viz-race"></div>
 
-  <p>This isn't just theory. In a real Chrome run against lesson 8's page, typing "lat" quickly into
-    the per-query-URL box left the results showing an earlier, shorter query. The other two boxes
-    showed "lat", as you'd hope. So what do you do about it? Your options:</p>
+  <p>So what do you do about it? Your options:</p>
   <div class="table-wrap"><table class="data">
     <thead><tr><th>design</th><th>pros</th><th>cons</th></tr></thead>
     <tbody>
@@ -344,12 +344,14 @@ datastar-mode: append
     plus one of the first two for correctness. And <code>requestCancellation: 'disabled'</code> exists
     for the rare case where you really do want both answers. <b>Brew Board chose:</b> nothing,
     technically, because it has no search box, and its commands are different URLs that shouldn't
-    cancel each other anyway. But if you do part 4's searchable-combobox stretch exercise, use one
-    URL.</p>
+    cancel each other anyway. (All but one: the three draft selects all post to <code>/draft</code>,
+    so a quick drink-then-size change aborts the first post. No harm done, because the second post
+    carries all three selects as they are now.) But if you do part 4's searchable-combobox stretch
+    exercise, use one URL.</p>
 
   <h3>5. <code>data-indicator</code> or a hand-managed flag</h3>
 
-  <p>Everybody's first attempt at "disable Save while saving" looks like this:
+  <p>A common first attempt at "disable Save while saving" looks like this:
     <code>$saving = true; @post('/save')</code>, with the server clearing <code>$saving</code> in its
     response. It works great right up until the network drops. Then no response arrives, nobody
     clears the flag, and the page stays locked until reload. Your user stares at a grayed-out button
@@ -359,8 +361,30 @@ datastar-mode: append
     connection. The one catch, which you'll remember from part 3: it only counts fetches started from
     the element that carries it.</p>
 
-  <p><b>Brew Board chose:</b> <code>data-indicator</code>. We looked for a case where the flag is
-    better. We didn't find one. This is the sacred cow.</p>
+  <p>So far, so sacred. But read that again: it counts <em>fetches</em>. It tells you a request is
+    in flight, not that its result is on screen. In a request/response app those are the same moment.
+    In part 6's design they aren't. A command answers 204, the fetch finishes, the indicator comes
+    down, and the result shows up afterwards on a different connection entirely: the page's stream.
+    The <a href="https://data-star.dev/guide/the_tao_of_datastar">Tao of Datastar</a> says so in as
+    many words: with CQRS, "it is generally better to manually show a loading indicator when backend
+    requests are made" and "allow it to be hidden when the DOM is updated from the backend."</p>
+
+  <p>So why hasn't Brew Board's "Add to cart" button ever flickered at you? Timing, mostly. Its watch
+    runs <code>broadcast!</code> inside the command's <code>swap!</code>, so the new view goes down
+    the stream before the handler even returns its 204. Add the throttle from part 6's TL;DR table,
+    or render on another thread, and the gap opens up: the button comes back to life a beat before
+    the cart changes, and a fast clicker adds a second latte. Your options:</p>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>design</th><th>pros</th><th>cons</th></tr></thead>
+    <tbody>
+      <tr><td><code>data-indicator</code></td><td>always comes down, even when the network drops</td><td>tracks the request, not the result; under CQRS it can come down before the result shows</td></tr>
+      <tr><td>a busy class added on click; the next morph removes it, because the server's HTML doesn't have it; a timeout as the fallback</td><td>covers the gap until the result is on screen</td><td>any morph of that view removes it, including one caused by someone else's change; a command that leaves the view unchanged sends no morph (the <code>:last</code> check), so only the timeout clears it</td></tr>
+      <tr><td>a pending state the server renders</td><td>the server knows exactly when the command is done</td><td>per-tab server state; nothing shows until the first round trip</td></tr>
+    </tbody>
+  </table></div>
+
+  <p><b>Brew Board chose:</b> <code>data-indicator</code>, knowing that the synchronous broadcast is
+    what makes it look right. Add a throttle and you'll want the busy class instead.</p>
 
   <h3>6. Per-tab or per-browser identity</h3>
 
@@ -378,6 +402,46 @@ datastar-mode: append
     stable across re-renders, and (like every non-<code>_</code> signal) sent along with every
     request. One small gotcha: <code>crypto.randomUUID()</code> needs a secure context, which means
     https, or localhost during development.</p>
+
+  <h3>7. Per-action routes or one command endpoint</h3>
+
+  <p>Brew Board gives every command its own route: <code>/orders/7/advance</code>,
+    <code>/cart/items</code>, <code>/draft</code>. There's another way, and people building real
+    Datastar apps use it. Make a command plain data, <code>{event, params}</code>, and send every one
+    of them to the same place. The page carries one command signal, <code>$cmd</code>. Controls are
+    plain HTML with inert attributes that the server renders:</p>
+<pre><code class="language-html">&lt;button data-action="advance-order" data-params='{"id": 7}'&gt;Advance&lt;/button&gt;</code></pre>
+  <p>Those two aren't Datastar attributes. They're plain HTML data attributes that the app makes
+    up, and Datastar has no plugin by either name, so it leaves them alone. The handlers read them
+    through <code>el.dataset</code>: <code>dataset.action</code> and <code>dataset.params</code>, a
+    JSON string.</p>
+  <p>A few delegated handlers on <code>&lt;body&gt;</code> (click, change) read those attributes,
+    fill in <code>$cmd</code>, and <code>@post</code> it to one <code>/app/command</code>. That endpoint
+    checks the command against the page's list of allowed commands, validates it against a schema,
+    logs it, and dispatches it. A select doesn't bind a signal at all; its change handler sends the new
+    value as a parameter. Only text that's being typed binds.</p>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th></th><th>per-action routes</th><th>one command endpoint</th></tr></thead>
+    <tbody>
+      <tr><td>signal count</td><td>bounded by discipline: no signal per row (part 4)</td><td>fixed by construction: <code>$cmd</code>, plus typed text</td></tr>
+      <tr><td>expressions</td><td>the server renders a URL or expression per control, and every value interpolated into one has to be safe to run as JavaScript (part 5)</td><td>the server renders data into attributes, never values into JavaScript</td></tr>
+      <tr><td>validation, logging</td><td>per route</td><td>one place: allow-list, schema, log, dispatch</td></tr>
+      <tr><td>reading a log</td><td><code>/orders/7/advance</code> says what happened</td><td>every line says <code>/app/command</code></td></tr>
+      <tr><td>cancellation</td><td>different URLs don't cancel each other</td><td>one URL, so every command aborts the one in flight; posts need <code>requestCancellation: 'disabled'</code> (trade-off 4)</td></tr>
+      <tr><td>selects, checkboxes</td><td>your choice per control</td><td>every change is a round trip</td></tr>
+      <tr><td>client code</td><td>none</td><td>the delegated handlers, written as <code>data-on</code> expressions the server renders on <code>&lt;body&gt;</code>; in a glue file they would know a signal name, which rules 5 and 11 forbid</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>You can also split the difference: delegated handlers that read the same attributes but post to
+    a per-action route, with the data in the query string. You keep the descriptive URLs and give up
+    the single place to validate.</p>
+
+  <p><b>Pick per-action routes</b> when a request should explain itself: in a log, in the network
+    tab, or to the next person tracing a button to its handler. <b>Pick one command endpoint</b> when
+    the commands multiply and you want permission checks, validation and an audit trail in exactly one
+    place. <b>Brew Board chose:</b> per-action routes, because this series is about seeing what each
+    request does. It's one of the both-sides ones.</p>
 
   <h2 id="constitution">An agent constitution for Datastar apps</h2>
 
@@ -482,12 +546,16 @@ is a design decision: record it before you build it.
 24. Read signals from the datastar query parameter on GET and DELETE, and
     from the body on POST, PUT and PATCH. Malformed or wrongly typed input
     yields {} or a validation error, never a 500.
-25. Disable controls during a request with data-indicator, which always
-    comes down. A hand-managed flag must be cleared by every server outcome,
-    and still sticks when the network drops.
+25. data-indicator tracks the request and always comes down; use it to
+    disable a control during a request. When a command answers 204 and its
+    result arrives on the stream, it can come down before the result shows:
+    add a busy state on click, let the next morph clear it, and add a
+    timeout. A flag that only a response clears sticks when the network
+    drops.
 26. The request's method and URL string decide what gets cancelled. When
     responses can overtake each other, use one URL with the query in
-    signals, or a sequence number.
+    signals, or a sequence number. Commands that share one URL post with
+    requestCancellation: 'disabled'.
 27. Long-lived streams: open them with retry: 'always' if the server may end
     them cleanly, and render the whole current view on every (re)connect.
     Never poll from the client.
@@ -535,7 +603,7 @@ is a design decision: record it before you build it.
 40. Record each decision with its cost and the alternatives rejected, and
     read the record before "cleaning up" something that looks odd.</code></pre>
   <p class="caption">Plain Markdown, so it pastes into whatever file your agent reads. Rule 21 is
-    trade-off 1 above, rule 25 is trade-off 5, and rule 26 is trade-off 4.</p>
+    trade-off 1 above, rule 25 is trade-off 5, and rule 26 is trade-offs 4 and 7.</p>
 
   <div class="code-ref"><p>The code is in <code>clojure/src/lesson08/field_guide.clj</code> (ns
     <code>lesson08.field-guide</code>), with tests in <code>clojure/test/lesson08/field_guide_test.clj</code>.
@@ -563,6 +631,8 @@ is a design decision: record it before you build it.
       <li>the server sends HTML for values the user reads, and signals only for what the client
         owns</li>
       <li>the URL string you write decides which requests cancel each other</li>
-      <li><code>data-indicator</code> always comes down after a request</li>
+      <li><code>data-indicator</code> tracks the request, not the result, and under CQRS the
+        result can land after it comes down</li>
       <li>per-tab state needs a tab id</li>
+      <li>per-action routes explain themselves; one command endpoint validates in one place</li>
     </ul></div>

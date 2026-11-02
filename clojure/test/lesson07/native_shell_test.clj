@@ -73,6 +73,18 @@
       (is (= [:sam] (n/broadcast! hub !state)))
       (is (= 2 (count @sent))))))
 
+(deftest failing-subscriber-test
+  (testing "a subscriber whose render throws is logged and skipped; the others still get their views"
+    (let [hub (n/make-hub)
+          !state (atom brew/initial-state)
+          sent (atom [])
+          err (java.io.StringWriter.)]
+      (n/subscribe! hub :bad (fn [_]) {:kind :no-such-view})
+      (n/subscribe! hub :sam #(swap! sent conj %) {:kind :board})
+      (is (= [:sam] (binding [*err* err] (n/broadcast! hub !state))))
+      (is (= 1 (count @sent)))
+      (is (string/includes? (str err) "broadcast: skipped :bad")))))
+
 (deftest native-routes-test
   (let [!state (atom brew/initial-state)
         hub (n/make-hub)

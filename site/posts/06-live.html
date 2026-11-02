@@ -233,12 +233,15 @@ for each subscriber s
     (let [state @!state]                     ;; read inside the lock: see below
       (into []
             (keep (fn [[id {:keys [send-fn viewer last]}]]
-                    (let [view (html (view-for state viewer))]
-                      (when (not= view last)
-                        (send-fn (sse/patch-elements view))
-                        (swap! hub #(cond-> % (contains? % id)   ;; still subscribed?
-                                      (assoc-in [id :last] view)))
-                        id))))
+                    (try
+                      (let [view (html (view-for state viewer))]
+                        (when (not= view last)
+                          (send-fn (sse/patch-elements view))
+                          (swap! hub #(cond-> % (contains? % id)   ;; still subscribed?
+                                        (assoc-in [id :last] view)))
+                          id))
+                      (catch Exception e                  ;; one bad view: see below
+                        (binding [*out* *err*] (println "broadcast: skipped" id (ex-message e)))))))
             @hub))))
 
 (add-watch !state ::broadcast (fn [_ _ old new] (when (not= old new) (broadcast! hub !state))))</code></pre>
@@ -263,6 +266,16 @@ for each subscriber s
     command failing and every live page frozen, from one badly timed close. The
     <code>contains?</code> check records <code>:last</code> only for a subscriber that is still
     there.</p>
+
+  <p>And that close race has a cousin, which is what the <code>try</code> is for. Remember where
+    <code>broadcast!</code> runs: inside the watch, inside the <code>swap!</code> of whatever command
+    changed the state. So suppose one viewer's render throws. Say a bug in a view that only Ada's
+    oddball cart ever reaches. Without the <code>try</code>, that one exception doesn't just skip Ada.
+    It stops the loop, so everybody after Ada in the hub misses this change. Then it climbs out of the
+    watch and out of the <code>swap!</code>, and the command answers 500, even though the state
+    already changed. One bad view, everybody's problem. With the <code>try</code>, the failing
+    subscriber is logged and skipped, everyone else gets their view, the command answers 204 as
+    usual, and the next change gives Ada another shot.</p>
 
   <p>The <code>:last</code> check matters more than it looks. Most changes touch one person's view:
     when Grace adds a mocha to her cart, Ada's page renders to the same string, so nothing is sent to
@@ -474,6 +487,15 @@ function morphNode(old, new)
     <li><b>A <code>@get</code> closes when the tab is hidden</b> and reopens when it is visible again
       (<code>openWhenHidden</code> defaults to false for GET). A phone that locks drops its stream.</li>
     <li><b>Each retry rebuilds the request</b>, with the signals as they are now.</li>
+    <li><b>The backoff has no jitter.</b> A deploy drops every stream at the same instant, so every
+      page retries on the same schedule, 1 s, 2 s, 4 s, in lockstep, and every reconnect asks for a
+      whole render. That's a stampede you scheduled yourself. Spreading it out (each stream's own
+      random <code>retry:</code> interval, say, or a staggered shutdown) is left as an exercise for the
+      reader.</li>
+    <li><b>Nothing notices a silent stream.</b> Datastar reads the stream with no read timeout. A
+      connection that dies without a close, which mobile networks are especially fond of, looks open
+      to the browser, and the server's <code>:on-close</code> can take minutes to fire. Part 7 has
+      the fix.</li>
   </ul>
 
   <p>And here's where the "wasteful" design pays for itself. Because <code>on-open</code> sends the
@@ -514,6 +536,37 @@ function morphNode(old, new)
         <code>__ifmissing</code>.</li>
     </ul></div>
 
+  <h2 id="where-next">Where this goes next</h2>
+
+  <p>One atom, one watch, one lock. That's the right size for a coffee shop and for a course, and
+    it's a perfectly good way to start a real app. But it's a starting point, not a destination.
+    Serious Datastar apps have grown it in two opposite directions, and there's a third trick that
+    works with either one:</p>
+
+  <ul>
+    <li><b>No connection state at all.</b> Anders Murphy's
+      <a href="https://github.com/andersmurphy/hyperlith">Hyperlith</a> is stateless on purpose. An
+      action can change what a page shows only by writing to the database and answering 204. Each
+      connection's view is a pure function of the database and the request, re-rendered on every
+      change at a throttled rate, and a view that many users share is rendered once for all of them.
+      Nothing lives in the connection, so a deploy or a missed event loses nothing. The price: per-tab
+      UI state, like an open panel or a wizard step, has to live in the database or in signals.</li>
+    <li><b>A small process per connection.</b> The opposite move keeps per-tab UI state on the
+      server, but gives each connection its own process instead of one shared atom: a session that
+      holds the tab's state and a renderer that draws from the latest state at most once per tick
+      (core.async.flow is one way to build it). A command handler becomes a pure function that returns
+      effects as data. No global lock, a burst of changes collapses into one render, and a slow render
+      or a broken view only hurts its own tab. The price is machinery: a registry of processes,
+      cleanup when a connection goes away, and swapping out the stale session when a tab reconnects.
+      And it's still memory, so a deploy resets it. (Brew Board gets off lightly there for the draft,
+      because every reconnect adopts the tab's signals.)</li>
+    <li><b>A static shell.</b> The page GET returns a cacheable shell, and the stream renders
+      everything, which is what Hyperlith does. "One renderer" stops being a tip you have to remember
+      and becomes a plain fact, because the page GET never renders the view at all. The cost is first
+      paint: nothing shows until the stream opens, and a client without JavaScript, link-preview bots
+      included, sees an empty shell.</li>
+  </ul>
+
   <div class="code-ref"><p>The code is in <code>clojure/src/lesson06/live.clj</code> (ns
     <code>lesson06.live</code>), with tests in <code>clojure/test/lesson06/live_test.clj</code>. The
     demo opens a customer stream and a board stream over real HTTP, runs a few commands, and prints
@@ -524,7 +577,7 @@ function morphNode(old, new)
 
   <div class="build-it"><p>Your turn. The exercise track for this part: <code>view-for</code> (each
     subscriber's whole view from the state, with the tab's draft and error), <code>broadcast</code>
-    (the body of <code>broadcast!</code>: render, skip identical, send) and
+    (the body of <code>broadcast!</code>: render, skip identical, send, and survive one bad view) and
     <code>stream-lifecycle</code> (adopt the tab's draft, subscribe, send the first view; on close,
     unsubscribe and drop the tab). Hints are on the <a href="../exercises.html">exercises page</a>.</p>
 <pre><code class="language-bash">cd clojure &amp;&amp; clojure -M:ex -d ex -n exercises.lesson06.live-test</code></pre></div>

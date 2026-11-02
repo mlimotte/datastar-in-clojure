@@ -296,6 +296,16 @@
     real server would send to APNs or FCM for her registered token. It's the one place where the
     server talks to a platform service instead of a page.</p>
 
+  <p>And the foreground has its own trap. Mobile networks love a half-open connection: the socket
+    looks alive, nothing arrives, and nobody raises an error. Datastar reads a stream with no read
+    timeout, so the page waits, patiently and forever, and the server's <code>:on-close</code> can
+    take minutes to fire. Meanwhile <code>notify!</code> sees an open stream for Ada, sends "your
+    order is ready" down it, and skips the push. Into the void it goes. The usual fix is a heartbeat:
+    the server patches a counter every few seconds, and a small timer on the page shows a
+    "reconnecting" banner after one missed beat and reopens the stream after two. (A heartbeat also
+    stops proxies that cut idle connections after a minute or so from cutting yours.) None of that
+    is Datastar-specific, so building it is an exercise for the reader.</p>
+
   <h2>What ships without a release</h2>
 
   <p>Here's the rule, and it's short enough to write on your hand: anything that is HTML, signals,

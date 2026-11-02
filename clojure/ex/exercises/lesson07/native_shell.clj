@@ -193,17 +193,21 @@
 
 (defn broadcast!
   "Send each subscriber its whole view of the current state when it changed. Returns the ids sent
-  to. It reads !state inside the lock, so a broadcast that runs late cannot send an older state."
+  to. It reads !state inside the lock, so a broadcast that runs late cannot send an older state.
+  A subscriber whose render or send throws is logged and skipped."
   [hub !state]
   (locking hub
     (let [state @!state]
       (into []
             (keep (fn [[id {:keys [send-fn viewer last]}]]
-                    (let [view (html (view-for state viewer))]
-                      (when (not= view last)
-                        (send-fn (sse/patch-elements view))
-                        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last] view)))
-                        id))))
+                    (try
+                      (let [view (html (view-for state viewer))]
+                        (when (not= view last)
+                          (send-fn (sse/patch-elements view))
+                          (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last] view)))
+                          id))
+                      (catch Exception e
+                        (binding [*out* *err*] (println "broadcast: skipped" id (ex-message e)))))))
             @hub))))
 
 (defn notify!

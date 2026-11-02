@@ -29,18 +29,23 @@
   "Send each subscriber its view of the current state (when it changed) and its extra events for
   the change from `old-state` to `new-state`. Broadcasts run one at a time and read `!state`
   inside the lock, so a broadcast that runs late cannot send an older view. Extra events describe
-  one change, so they use the states the watch passed in."
+  one change, so they use the states the watch passed in. A subscriber whose render or send
+  throws is logged and skipped: the others still get their views, and the command that changed
+  the state does not fail."
   [hub !state old-state new-state]
   (locking hub
     (let [state @!state]
-      (doseq [[id {:keys [send-fn extra-fn last-html] :as sub}] @hub
-              :let [html   (render sub state)
-                    events (cond-> []
-                             (not= html last-html) (conj (sse/patch-elements html))
-                             extra-fn              (into (extra-fn old-state new-state)))]
-              :when (seq events)]
-        (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last-html] html)))
-        (send-fn (apply str events))))))
+      (doseq [[id {:keys [send-fn extra-fn last-html] :as sub}] @hub]
+        (try
+          (let [html   (render sub state)
+                events (cond-> []
+                         (not= html last-html) (conj (sse/patch-elements html))
+                         extra-fn              (into (extra-fn old-state new-state)))]
+            (when (seq events)
+              (swap! hub #(cond-> % (contains? % id) (assoc-in [id :last-html] html)))
+              (send-fn (apply str events))))
+          (catch Exception e
+            (binding [*out* *err*] (println "broadcast: skipped" id (ex-message e)))))))))
 
 (defn watch-state!
   "Broadcast on every change of `!state`."

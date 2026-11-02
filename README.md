@@ -39,3 +39,5 @@ lk ci           # everything CI checks
 
 `DESIGN.md` is the contract the code and posts were built against, including what we learned
 about Datastar along the way.
+
+Thanks to [Fabian Merkle](https://www.linkedin.com/in/merklefabian/) for review and feedback.

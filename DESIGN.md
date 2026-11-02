@@ -357,3 +357,28 @@ These override earlier sections.
   fixed keywords), URL-encoded values, or signal references; never raw stored or request values.
   Seed signals with cheshire. JSON in inline `<script>` text writes every `<` as `\u003c`. Show a bad example (a customer
   name concatenated into an `@post` URL) and the fix.
+
+## Revision 2026-10-28: peer review (Fabian Merkle)
+
+These override earlier sections.
+
+### R6. One bad view cannot stop a broadcast (part 6 and its exercise, part 7, capstone)
+- Every `broadcast!` wraps each subscriber's render and send in `try`; an exception is printed to
+  `*err*` as `broadcast: skipped <id> <message>` and that subscriber is skipped. The others still
+  get their views, and the command's `swap!` does not throw. Each copy has a test.
+
+### R7. `data-indicator` tracks the request, not the result (part 8 trade-off 5, rule 25)
+- Under CQRS a 204 command finishes before its result arrives on the stream (Tao of Datastar:
+  show the indicator yourself and let the next morph hide it). Brew Board keeps `data-indicator`
+  on "Add to cart" because its broadcast is synchronous; the post says so and names the options.
+
+### R8. Seven trade-offs (part 8)
+- Trade-off 7: per-action routes or one command endpoint. Prose and a table, no lesson code.
+  Brew Board keeps per-action routes. Rule 26 notes `requestCancellation: 'disabled'` for
+  commands that share a URL.
+
+### R9. Where this goes next, and connection failures (parts 6–7)
+- Part 6 ends with "Where this goes next": Hyperlith's stateless model, a process per
+  connection, a static shell. "Reconnects" states that the backoff has no jitter and that a
+  stream has no read timeout. Part 7 describes half-open connections; heartbeats, jitter and
+  staggered shutdown are left as exercises for the reader (not Datastar-specific).

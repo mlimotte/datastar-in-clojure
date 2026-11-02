@@ -258,9 +258,11 @@
 (defn broadcast!
   "Render each subscriber's view of the current state. Send it as one patch-elements event only
   when the HTML differs from what that subscriber was last sent. Returns the ids that were sent to.
-  It reads !state inside the lock, so a broadcast that runs late cannot send an older state."
+  It reads !state inside the lock, so a broadcast that runs late cannot send an older state.
+  A subscriber whose render or send throws is logged and skipped: the others still get their
+  views, and the command that changed the state does not fail."
   [hub !state]
-  ;; EXERCISE(broadcast): Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last, but only if the subscriber is still in the hub: its stream may close mid-broadcast. Return the ids that were sent to.
+  ;; EXERCISE(broadcast): Lock the hub, then read the current state from !state. For every subscriber, render (view-for state viewer) to an HTML string. If it differs from the subscriber's :last, call its send-fn with a patch-elements event of that HTML and record it as :last, but only if the subscriber is still in the hub: its stream may close mid-broadcast. If one subscriber throws, print the error to *err* and skip it. Return the ids that were sent to.
   (throw (ex-info "TODO: exercise broadcast" {:exercise "broadcast"}))
   )
 

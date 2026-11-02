@@ -88,6 +88,16 @@
       (is (= [:sam] (l/broadcast! hub !state)))
       (is (= 2 (count @sam-sent))))))
 
+(deftest failing-subscriber-test
+  (testing "a subscriber whose render throws is skipped; the others still get their views"
+    (let [hub (l/make-hub)
+          !state (atom l/initial-state)
+          [sam-sent sam-fn] (recorder)]
+      (l/subscribe! hub :bad (fn [_]) {:kind :no-such-view})
+      (l/subscribe! hub :sam sam-fn {:kind :board})
+      (is (= [:sam] (binding [*err* (java.io.StringWriter.)] (l/broadcast! hub !state))))
+      (is (= 1 (count @sam-sent))))))
+
 (deftest tab-commands-test
   (let [opened (l/handle-command l/initial-state {:type :open-tab :sid "ada" :tabid "t1" :stream 1
                                                   :draft {:drink :chai :size :small :milk :oat}})]
